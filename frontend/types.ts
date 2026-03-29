@@ -42,6 +42,8 @@ export interface Message {
   text: string;
   timestamp: string;
   isMe: boolean;
+  /** When isMe: set after the other person opens this thread (read receipt). */
+  readAt?: string | null;
 }
 
 export interface Conversation {
@@ -58,6 +60,14 @@ export interface ChatThreadPreview {
   partner: Profile;
   lastMessage: string;
   time: string;
+  unreadCount?: number;
+}
+
+/** Pending interest received by the current user (accept/reject in Notifications). */
+export interface IncomingInterestRequest {
+  id: string;
+  createdAt: string;
+  fromProfile: Profile;
 }
 
 export interface AuthSession {

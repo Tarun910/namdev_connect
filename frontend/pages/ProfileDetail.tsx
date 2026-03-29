@@ -20,6 +20,9 @@ const ProfileDetail: React.FC = () => {
   const [isSaved, setIsSaved] = useState(false);
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [favoriteHint, setFavoriteHint] = useState<string | null>(null);
+  const [interestStatus, setInterestStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected'>('none');
+  const [interestSending, setInterestSending] = useState(false);
+  const [interestHint, setInterestHint] = useState<string | null>(null);
 
   const loadPage = useCallback(async () => {
     if (!id) return;
@@ -31,13 +34,19 @@ const ProfileDetail: React.FC = () => {
         setLoadError('Sign in required');
         return;
       }
-      const [p, me] = await Promise.all([
+      const [p, me, sent] = await Promise.all([
         authorizedFetch<Profile>(`/profile/${encodeURIComponent(id)}`, token),
         authorizedFetch<User>('/profile/me', token),
+        authorizedFetch<{ status: string }>(
+          `/interest-requests/sent/${encodeURIComponent(id)}`,
+          token
+        ).catch(() => ({ status: 'none' })),
       ]);
       setProfile(p);
       setCurrentUser(me);
       setIsSaved(Boolean(p.isSaved));
+      const st = sent.status as 'none' | 'pending' | 'accepted' | 'rejected';
+      setInterestStatus(st === 'none' ? 'none' : st);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not load profile');
       setProfile(null);
@@ -90,6 +99,30 @@ const ProfileDetail: React.FC = () => {
     }
   };
 
+  const sendInterest = async () => {
+    if (!profile || !id || savingFavorite) return;
+    const isOwn = currentUser?.id === profile.id;
+    if (isOwn || interestSending) return;
+    if (interestStatus === 'pending' || interestStatus === 'accepted') return;
+    const token = await getToken();
+    if (!token) return;
+    setInterestSending(true);
+    setInterestHint(null);
+    try {
+      await authorizedFetch<{ status: string }>('/interest-requests', token, {
+        method: 'POST',
+        body: JSON.stringify({ toProfileId: id }),
+      });
+      setInterestStatus('pending');
+      setInterestHint(t('interest_sent'));
+    } catch (e) {
+      setInterestHint(e instanceof Error ? e.message : t('interest_error'));
+    } finally {
+      setInterestSending(false);
+      window.setTimeout(() => setInterestHint(null), 2600);
+    }
+  };
+
   const photoSlides = useMemo(() => {
     if (!profile) return [];
     const g = profile.galleryUrls?.filter((u) => u?.trim()) ?? [];
@@ -122,6 +155,15 @@ const ProfileDetail: React.FC = () => {
   }
 
   const isOwnProfile = currentUser?.id === profile.id;
+
+  const interestPrimaryLabel =
+    interestStatus === 'pending'
+      ? t('interest_pending')
+      : interestStatus === 'accepted'
+        ? t('interest_accepted_chat')
+        : interestStatus === 'rejected'
+          ? t('interest_send_again')
+          : t('send_interest');
   const isPremiumUser = currentUser?.isPremium;
   const heroUrl =
     photoSlides[Math.min(photoIdx, Math.max(0, photoSlides.length - 1))] ||
@@ -359,12 +401,16 @@ const ProfileDetail: React.FC = () => {
 
       {/* Action Bar */}
       <div className="fixed bottom-20 left-1/2 -translate-x-1/2 w-full max-w-md bg-white/95 dark:bg-gray-900/95 backdrop-blur-xl border-t border-gray-100 dark:border-gray-800 p-5 px-6 pb-6 z-40 shadow-[0_-10px_30px_rgba(0,0,0,0.05)] rounded-t-[2rem]">
+        {interestHint && (
+          <p className="text-center text-xs font-bold text-primary mb-3">{interestHint}</p>
+        )}
         <div className="flex items-center gap-3 w-full">
           <div className="flex gap-2 shrink-0">
             <button 
               onClick={() => navigate(`/kundli/${profile.id}`)}
               className="size-12 bg-saffron/10 text-saffron rounded-2xl flex items-center justify-center border border-saffron/20 active:scale-90 transition-transform"
               title={t('kundli_milan')}
+              type="button"
             >
               <span className="material-symbols-outlined text-2xl">auto_awesome</span>
             </button>
@@ -372,16 +418,51 @@ const ProfileDetail: React.FC = () => {
               onClick={() => navigate(`/compatibility/${profile.id}`)}
               className="size-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center border border-primary/20 active:scale-90 transition-transform"
               title={t('ai_compatibility')}
+              type="button"
             >
               <span className="material-symbols-outlined text-2xl">insights</span>
             </button>
+            {!isOwnProfile && (
+              <button
+                onClick={() => navigate(`/chat/${profile.id}`)}
+                className="size-12 bg-gray-100 dark:bg-white/10 text-primary rounded-2xl flex items-center justify-center border border-gray-200 dark:border-gray-700 active:scale-90 transition-transform"
+                title="Chat"
+                type="button"
+              >
+                <span className="material-symbols-outlined text-2xl">chat</span>
+              </button>
+            )}
           </div>
-          <button 
-            onClick={() => navigate(`/chat/${profile.id}`)}
-            className="flex-1 bg-primary text-white h-12 rounded-2xl font-black text-base shadow-xl flex items-center justify-center gap-3 uppercase tracking-widest active:scale-[0.98] transition-all"
-          >
-            {t('send_interest')}
-          </button>
+          {!isOwnProfile ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (interestStatus === 'accepted') {
+                  navigate(`/chat/${profile.id}`);
+                  return;
+                }
+                void sendInterest();
+              }}
+              disabled={interestSending || interestStatus === 'pending'}
+              className="flex-1 bg-primary text-white h-12 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 uppercase tracking-widest active:scale-[0.98] transition-all disabled:opacity-70 disabled:active:scale-100"
+            >
+              {interestSending ? (
+                <div className="size-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <span className="material-symbols-outlined text-xl">favorite</span>
+              )}
+              {interestPrimaryLabel}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => navigate('/complete-profile')}
+              className="flex-1 bg-primary text-white h-12 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 uppercase tracking-widest active:scale-[0.98] transition-all"
+            >
+              <span className="material-symbols-outlined text-xl">edit</span>
+              {t('complete_profile')}
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -18,6 +18,13 @@ import {
 //   parseVerificationImageBody,
 // } from './rekognitionCompare.js';
 // import { profileHasVerifiablePhoto } from './profiles.js';
+import {
+  fetchConversationPreviewRows,
+  fetchMessagesBetween,
+  markIncomingFromPartnerRead,
+  uuidKeysEqual,
+} from './chatQueries.js';
+import { broadcastMessagesRead, broadcastNewChatMessage } from './chatRealtime.js';
 import { getOrCreateProfileId } from './profiles.js';
 import { getSupabaseAdmin } from './supabaseAdmin.js';
 
@@ -338,6 +345,241 @@ app.delete('/api/saved-interests/:targetProfileId', async (req, res) => {
   res.json({ ok: true });
 });
 
+async function profileFirstName(sb: ReturnType<typeof getSupabaseAdmin>, profileId: string): Promise<string> {
+  const { data } = await sb.from('profiles').select('name').eq('id', profileId).maybeSingle();
+  const n = data && typeof (data as { name?: string }).name === 'string' ? (data as { name: string }).name.trim() : '';
+  if (n && n !== 'Member') return (n.split(/\s+/)[0] ?? n) as string;
+  return 'Someone';
+}
+
+/** Send or re-send interest (pending). Idempotent if already pending. */
+app.post('/api/interest-requests', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const toProfileId = (req.body as { toProfileId?: string })?.toProfileId;
+  if (!toProfileId || typeof toProfileId !== 'string') {
+    res.status(400).json({ error: 'toProfileId required' });
+    return;
+  }
+  if (toProfileId === user.profileId) {
+    res.status(400).json({ error: 'Cannot send interest to yourself' });
+    return;
+  }
+  const sb = getSupabaseAdmin();
+  const { data: target, error: tErr } = await sb.from('profiles').select('id').eq('id', toProfileId).maybeSingle();
+  if (tErr || !target) {
+    res.status(404).json({ error: 'Profile not found' });
+    return;
+  }
+
+  const { data: existing, error: exErr } = await sb
+    .from('interest_requests')
+    .select('id, status')
+    .eq('from_user_id', user.profileId)
+    .eq('to_user_id', toProfileId)
+    .maybeSingle();
+  if (exErr) {
+    res.status(400).json({ error: exErr.message });
+    return;
+  }
+
+  let requestId: string;
+  const nowIso = new Date().toISOString();
+  if (existing) {
+    if (existing.status === 'pending') {
+      res.json({ id: existing.id as string, status: 'pending' });
+      return;
+    }
+    if (existing.status === 'accepted') {
+      res.status(400).json({ error: 'Interest already accepted' });
+      return;
+    }
+    const { data: updated, error: upErr } = await sb
+      .from('interest_requests')
+      .update({ status: 'pending', updated_at: nowIso })
+      .eq('id', existing.id)
+      .select('id')
+      .single();
+    if (upErr || !updated) {
+      res.status(400).json({ error: upErr?.message ?? 'Could not update request' });
+      return;
+    }
+    requestId = updated.id as string;
+  } else {
+    const { data: inserted, error: insErr } = await sb
+      .from('interest_requests')
+      .insert({
+        from_user_id: user.profileId,
+        to_user_id: toProfileId,
+        status: 'pending',
+        updated_at: nowIso,
+      })
+      .select('id')
+      .single();
+    if (insErr || !inserted) {
+      res.status(400).json({ error: insErr?.message ?? 'Could not create request' });
+      return;
+    }
+    requestId = inserted.id as string;
+  }
+
+  const fromName = await profileFirstName(sb, user.profileId);
+  await sb.from('notifications').insert({
+    user_id: toProfileId,
+    title: 'New interest',
+    body: `${fromName} sent you an interest request. Open Notifications to accept or decline.`,
+    time_label: 'Just now',
+    is_read: false,
+    type: 'interest',
+  });
+
+  res.json({ id: requestId, status: 'pending' });
+});
+
+app.get('/api/interest-requests/incoming', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const sb = getSupabaseAdmin();
+  const { data: rows, error } = await sb
+    .from('interest_requests')
+    .select('id, from_user_id, status, created_at')
+    .eq('to_user_id', user.profileId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
+  const ids = (rows ?? []).map((r: { from_user_id: string }) => r.from_user_id);
+  if (ids.length === 0) {
+    res.json([]);
+    return;
+  }
+  const { data: profs, error: pErr } = await sb.from('profiles').select('*').in('id', ids);
+  if (pErr) {
+    res.status(400).json({ error: pErr.message });
+    return;
+  }
+  const byId = new Map((profs ?? []).map((p: { id: string }) => [p.id, p] as const));
+  const list = (rows ?? []).map((r: { id: string; from_user_id: string; created_at: string }) => {
+    const pr = byId.get(r.from_user_id) as Parameters<typeof rowToProfile>[0] | undefined;
+    return {
+      id: r.id,
+      createdAt: r.created_at,
+      fromProfile: pr ? rowToProfile(pr) : null,
+    };
+  });
+  res.json(list.filter((x) => x.fromProfile));
+});
+
+app.get('/api/interest-requests/sent/:targetProfileId', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const targetId = req.params.targetProfileId;
+  const sb = getSupabaseAdmin();
+  const { data, error } = await sb
+    .from('interest_requests')
+    .select('id, status')
+    .eq('from_user_id', user.profileId)
+    .eq('to_user_id', targetId)
+    .maybeSingle();
+  if (error) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
+  if (!data) {
+    res.json({ status: 'none', id: null });
+    return;
+  }
+  res.json({ status: (data as { status: string }).status, id: (data as { id: string }).id });
+});
+
+app.post('/api/interest-requests/:id/accept', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const sb = getSupabaseAdmin();
+  const { data: row, error: fErr } = await sb
+    .from('interest_requests')
+    .select('*')
+    .eq('id', req.params.id)
+    .single();
+  if (fErr || !row) {
+    res.status(404).json({ error: 'Request not found' });
+    return;
+  }
+  const r = row as { to_user_id: string; from_user_id: string; status: string };
+  if (r.to_user_id !== user.profileId) {
+    res.status(403).json({ error: 'Not allowed' });
+    return;
+  }
+  if (r.status !== 'pending') {
+    res.status(400).json({ error: 'Request is not pending' });
+    return;
+  }
+  const nowIso = new Date().toISOString();
+  const { error: uErr } = await sb
+    .from('interest_requests')
+    .update({ status: 'accepted', updated_at: nowIso })
+    .eq('id', req.params.id);
+  if (uErr) {
+    res.status(400).json({ error: uErr.message });
+    return;
+  }
+  const accepterName = await profileFirstName(sb, user.profileId);
+  await sb.from('notifications').insert({
+    user_id: r.from_user_id,
+    title: 'Interest accepted',
+    body: `${accepterName} accepted your interest. You can start a chat.`,
+    time_label: 'Just now',
+    is_read: false,
+    type: 'interest',
+  });
+  res.json({ ok: true, status: 'accepted' });
+});
+
+app.post('/api/interest-requests/:id/reject', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const sb = getSupabaseAdmin();
+  const { data: row, error: fErr } = await sb
+    .from('interest_requests')
+    .select('*')
+    .eq('id', req.params.id)
+    .single();
+  if (fErr || !row) {
+    res.status(404).json({ error: 'Request not found' });
+    return;
+  }
+  const r = row as { to_user_id: string; from_user_id: string; status: string };
+  if (r.to_user_id !== user.profileId) {
+    res.status(403).json({ error: 'Not allowed' });
+    return;
+  }
+  if (r.status !== 'pending') {
+    res.status(400).json({ error: 'Request is not pending' });
+    return;
+  }
+  const nowIso = new Date().toISOString();
+  const { error: uErr } = await sb
+    .from('interest_requests')
+    .update({ status: 'rejected', updated_at: nowIso })
+    .eq('id', req.params.id);
+  if (uErr) {
+    res.status(400).json({ error: uErr.message });
+    return;
+  }
+  const rejectorName = await profileFirstName(sb, user.profileId);
+  await sb.from('notifications').insert({
+    user_id: r.from_user_id,
+    title: 'Interest declined',
+    body: `${rejectorName} declined your interest request.`,
+    time_label: 'Just now',
+    is_read: false,
+    type: 'interest',
+  });
+  res.json({ ok: true, status: 'rejected' });
+});
+
 /* --- Verified-only featured list (delayed; use from Home when verification ships) ---
 app.get('/api/profiles/featured', async (req, res) => {
   const user = await requireApiUser(req, res);
@@ -377,12 +619,7 @@ app.get('/api/chat/conversations', async (req, res) => {
   if (!user) return;
   const sb = getSupabaseAdmin();
   const me = user.profileId;
-  const { data: rows, error } = await sb
-    .from('messages')
-    .select('sender_id, receiver_id, body, created_at')
-    .or(`sender_id.eq.${me},receiver_id.eq.${me}`)
-    .order('created_at', { ascending: false })
-    .limit(500);
+  const { data: rows, error } = await fetchConversationPreviewRows(sb, me);
   if (error) {
     res.status(400).json({ error: error.message });
     return;
@@ -393,11 +630,13 @@ app.get('/api/chat/conversations', async (req, res) => {
   for (const row of rows ?? []) {
     const s = row.sender_id as string;
     const r = row.receiver_id as string;
-    const partner = s === me ? r : s;
-    if (seen.has(partner)) continue;
-    seen.add(partner);
+    const partner = uuidKeysEqual(s, me) ? r : s;
+    if (uuidKeysEqual(partner, me)) continue;
+    const dedupeKey = partner.trim().toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     partnerOrder.push(partner);
-    latest.set(partner, { body: String(row.body), created_at: String(row.created_at) });
+    latest.set(dedupeKey, { body: String(row.body), created_at: String(row.created_at) });
   }
   if (partnerOrder.length === 0) {
     res.json([]);
@@ -408,22 +647,61 @@ app.get('/api/chat/conversations', async (req, res) => {
     res.status(400).json({ error: pErr.message });
     return;
   }
-  const byId = new Map(
-    (profiles ?? []).map((p: { id: string }) => [p.id, p] as const)
-  );
+  const byIdNorm = new Map<string, Parameters<typeof rowToProfile>[0]>();
+  for (const row of profiles ?? []) {
+    const p = row as Parameters<typeof rowToProfile>[0];
+    byIdNorm.set(p.id.trim().toLowerCase(), p);
+  }
+  const meNorm = me.trim().toLowerCase();
+
+  const { data: unreadRows, error: unreadErr } = await sb
+    .from('messages')
+    .select('sender_id')
+    .eq('receiver_id', me)
+    .is('read_at', null);
+  if (unreadErr) {
+    res.status(400).json({ error: unreadErr.message });
+    return;
+  }
+  const unreadBySender = new Map<string, number>();
+  for (const u of unreadRows ?? []) {
+    const sid = String((u as { sender_id: string }).sender_id).trim().toLowerCase();
+    unreadBySender.set(sid, (unreadBySender.get(sid) ?? 0) + 1);
+  }
+
   const list = partnerOrder
     .map((pid) => {
-      const p = byId.get(pid) as Parameters<typeof rowToProfile>[0] | undefined;
-      const l = latest.get(pid);
+      const k = pid.trim().toLowerCase();
+      const p = byIdNorm.get(k);
+      const l = latest.get(k);
       if (!p || !l) return null;
+      const partner = rowToProfile(p);
+      if (partner.id.trim().toLowerCase() === meNorm) return null;
       return {
-        partner: rowToProfile(p),
+        partner,
         lastMessage: l.body,
         time: l.created_at,
+        unreadCount: unreadBySender.get(k) ?? 0,
       };
     })
-    .filter(Boolean);
+    .filter((item): item is NonNullable<typeof item> => item !== null);
   res.json(list);
+});
+
+app.get('/api/chat/unread-count', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const sb = getSupabaseAdmin();
+  const { count, error } = await sb
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('receiver_id', user.profileId)
+    .is('read_at', null);
+  if (error) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
+  res.json({ total: count ?? 0 });
 });
 
 app.get('/api/chat/:partnerId/messages', async (req, res) => {
@@ -432,11 +710,17 @@ app.get('/api/chat/:partnerId/messages', async (req, res) => {
   const partnerId = req.params.partnerId;
   const sb = getSupabaseAdmin();
   const me = user.profileId;
-  const { data, error } = await sb
-    .from('messages')
-    .select('*')
-    .or(`and(sender_id.eq.${me},receiver_id.eq.${partnerId}),and(sender_id.eq.${partnerId},receiver_id.eq.${me})`)
-    .order('created_at', { ascending: true });
+
+  const { updated: markedRead, error: markErr } = await markIncomingFromPartnerRead(sb, me, partnerId);
+  if (markErr) {
+    res.status(400).json({ error: markErr.message });
+    return;
+  }
+  if (markedRead > 0) {
+    void broadcastMessagesRead(sb, me, partnerId, { reader_id: me });
+  }
+
+  const { data, error } = await fetchMessagesBetween(sb, me, partnerId);
   if (error) {
     res.status(400).json({ error: error.message });
     return;
@@ -467,7 +751,16 @@ app.post('/api/chat/messages', async (req, res) => {
     res.status(400).json({ error: error?.message ?? 'Insert failed' });
     return;
   }
-  res.json(rowToMessage(data as Parameters<typeof rowToMessage>[0], user.profileId));
+  const inserted = data as Parameters<typeof rowToMessage>[0];
+  void broadcastNewChatMessage(sb, user.profileId, receiverId, {
+    id: inserted.id,
+    sender_id: inserted.sender_id,
+    receiver_id: inserted.receiver_id,
+    body: inserted.body,
+    created_at: inserted.created_at,
+    read_at: (inserted as { read_at?: string | null }).read_at ?? null,
+  });
+  res.json(rowToMessage(inserted, user.profileId));
 });
 
 app.get('/api/notifications', async (req, res) => {

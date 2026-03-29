@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
+import { getSupabaseBrowser, subscribeToChatChannel } from '../services/supabaseClient';
 import { Profile, Message } from '../types';
 
 const Chat: React.FC = () => {
@@ -9,22 +10,64 @@ const Chat: React.FC = () => {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [meId, setMeId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (id) {
-      Promise.all([
-        api.profile.getById(id),
-        api.chat.getMessages(id)
-      ]).then(([p, msgs]) => {
+    if (!id) return;
+    let cancelled = false;
+    setMeId(null);
+    setLoading(true);
+    (async () => {
+      try {
+        const [p, msgs] = await Promise.all([
+          api.profile.getById(id),
+          api.chat.getMessages(id),
+        ]);
+        if (cancelled) return;
         if (p) setProfile(p);
         setMessages(msgs);
-        setLoading(false);
-      });
-    }
+        try {
+          const me = await api.profile.getMe();
+          if (!cancelled) setMeId(me.id);
+        } catch {
+          if (!cancelled) setMeId(null);
+        }
+      } catch {
+        if (!cancelled) setMessages([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !meId) return;
+    const client = getSupabaseBrowser();
+    if (!client) return;
+    const channel = subscribeToChatChannel(client, meId, id, {
+      onMessage: (msg) => {
+        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      },
+      onMessagesRead: async (payload) => {
+        if (payload.reader_id.trim().toLowerCase() !== id.trim().toLowerCase()) return;
+        try {
+          const fresh = await api.chat.getMessages(id);
+          setMessages(fresh);
+        } catch {
+          /* keep current */
+        }
+      },
+    });
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [id, meId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -79,7 +122,26 @@ const Chat: React.FC = () => {
               }`}>
                 <p className="text-[15px] leading-relaxed text-[#191011] dark:text-gray-100">{m.text}</p>
               </div>
-              <span className="text-[10px] text-gray-400 mr-1">{m.timestamp}</span>
+              <div
+                className={`flex items-center gap-1 ${m.isMe ? 'flex-row-reverse' : ''} text-[10px] text-gray-400 ${
+                  m.isMe ? 'mr-0 ml-1' : 'mr-1'
+                }`}
+              >
+                <span>{m.timestamp}</span>
+                {m.isMe && (
+                  <span
+                    className={`material-symbols-outlined text-[14px] leading-none ${
+                      m.readAt ? 'text-primary' : 'text-gray-400'
+                    }`}
+                    style={{
+                      fontVariationSettings: m.readAt ? "'FILL' 1" : "'FILL' 0",
+                    }}
+                    title={m.readAt ? 'Read' : 'Sent'}
+                  >
+                    {m.readAt ? 'done_all' : 'done'}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         ))}

@@ -39,6 +39,8 @@ export interface Message {
   text: string;
   timestamp: string;
   isMe: boolean;
+  /** If isMe: set when the recipient opened the chat (read receipt). */
+  readAt?: string | null;
 }
 
 export interface AppNotification {

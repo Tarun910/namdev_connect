@@ -4,7 +4,11 @@ import { useAuth } from '@clerk/react';
 import { LanguageContext } from '../App';
 import { useTranslation } from '../services/i18n';
 import { authorizedFetch } from '../services/api';
-import type { ChatThreadPreview } from '../types';
+import type { ChatThreadPreview, User } from '../types';
+
+function profileIdNorm(id: string): string {
+  return id.trim().toLowerCase();
+}
 
 function formatThreadTime(iso: string): string {
   try {
@@ -38,8 +42,12 @@ const ChatsList: React.FC = () => {
         setError('Sign in required');
         return;
       }
-      const data = await authorizedFetch<ChatThreadPreview[]>('/chat/conversations', token);
-      setThreads(data);
+      const [me, data] = await Promise.all([
+        authorizedFetch<User>('/profile/me', token),
+        authorizedFetch<ChatThreadPreview[]>('/chat/conversations', token),
+      ]);
+      const myId = profileIdNorm(me.id);
+      setThreads(data.filter((t) => profileIdNorm(t.partner.id) !== myId));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load chats');
       setThreads([]);
@@ -94,27 +102,36 @@ const ChatsList: React.FC = () => {
           </div>
         )}
         {!loading &&
-          threads.map(({ partner, lastMessage, time }) => (
+          threads.map(({ partner, lastMessage, time, unreadCount = 0 }) => (
             <button
               key={partner.id}
               type="button"
               onClick={() => navigate(`/chat/${partner.id}`)}
               className="w-full flex items-center gap-3 p-4 rounded-2xl bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 mb-2 text-left active:scale-[0.99] transition-transform"
             >
-              <div
-                className="size-14 rounded-full bg-cover bg-center shrink-0 border border-gray-100 dark:border-gray-600"
-                style={{ backgroundImage: `url(${partner.imageUrl})` }}
-              />
+              <div className="relative shrink-0">
+                <div
+                  className="size-14 rounded-full bg-cover bg-center border border-gray-100 dark:border-gray-600"
+                  style={{ backgroundImage: `url(${partner.imageUrl})` }}
+                />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-primary text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white dark:border-gray-800">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-black text-[#191011] dark:text-white truncate">
-                    {partner.name}
-                  </p>
-                  <span className="text-[10px] font-bold text-gray-400 shrink-0">
+                  <p className="font-black text-[#191011] dark:text-white truncate">{partner.name}</p>
+                  <span
+                    className={`text-[10px] font-bold shrink-0 ${unreadCount > 0 ? 'text-primary' : 'text-gray-400'}`}
+                  >
                     {formatThreadTime(time)}
                   </span>
                 </div>
-                <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                <p
+                  className={`text-sm truncate mt-0.5 ${unreadCount > 0 ? 'font-bold text-[#191011] dark:text-gray-200' : 'text-gray-500 dark:text-gray-400'}`}
+                >
                   {lastMessage}
                 </p>
               </div>

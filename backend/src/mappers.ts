@@ -1,3 +1,4 @@
+import { uuidKeysEqual } from './chatQueries.js';
 import type { AppNotification, Message, Profile, User } from './types.js';
 
 type ProfileRow = {
@@ -70,18 +71,21 @@ type MessageRow = {
   receiver_id: string;
   body: string;
   created_at: string;
+  read_at?: string | null;
 };
 
 export function rowToMessage(row: MessageRow, currentUserId: string): Message {
   const d = new Date(row.created_at);
   const timestamp = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const isMe = uuidKeysEqual(row.sender_id, currentUserId);
   return {
     id: row.id,
     senderId: row.sender_id,
     receiverId: row.receiver_id,
     text: row.body,
     timestamp,
-    isMe: row.sender_id === currentUserId,
+    isMe,
+    readAt: row.read_at ?? null,
   };
 }
 

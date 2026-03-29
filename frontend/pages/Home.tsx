@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { LanguageContext } from '../App';
 import { useTranslation } from '../services/i18n';
 import { authorizedFetch } from '../services/api';
-import type { Profile, User } from '../types';
+import type { AppNotification, Profile, User } from '../types';
 
 interface Props {
   onToggleTheme: () => void;
@@ -36,6 +36,7 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
   const [me, setMe] = useState<User | null>(null);
   const [featured, setFeatured] = useState<Profile[]>([]);
   const [loadingFeatured, setLoadingFeatured] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const needsProfileSetup = useMemo(() => {
     if (!me) return true;
@@ -43,20 +44,27 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
   }, [me]);
 
   const loadFeatured = useCallback(async () => {
-    if (!isLoaded || !isSignedIn) return;
+    if (!isLoaded) return;
+    if (!isSignedIn) {
+      setNotifications([]);
+      return;
+    }
     setLoadingFeatured(true);
     try {
       const token = await getToken();
       if (!token) return;
-      const [meUser, profiles] = await Promise.all([
+      const [meUser, profiles, notifs] = await Promise.all([
         authorizedFetch<User>('/profile/me', token),
         authorizedFetch<Profile[]>('/profiles', token),
+        authorizedFetch<AppNotification[]>('/notifications', token),
       ]);
       setMe(meUser);
       setFeatured((profiles ?? []).slice(0, 4));
+      setNotifications(notifs ?? []);
     } catch {
       // Keep marketing UI usable even if API fails.
       setFeatured([]);
+      setNotifications([]);
     } finally {
       setLoadingFeatured(false);
     }
@@ -75,6 +83,8 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
     }
     navigate('/complete-profile');
   }, [isLoaded, isSignedIn, navigate]);
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   return (
     <div className="flex flex-col min-h-screen bg-background-light dark:bg-background-dark animate-fade-up">
@@ -114,6 +124,19 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
               </SignUpButton>
             </Show>
             <Show when="signed-in">
+              <button
+                type="button"
+                onClick={() => navigate('/notifications')}
+                className="relative flex size-9 items-center justify-center rounded-full bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 active:scale-90 transition-transform"
+                aria-label={t('notifications')}
+              >
+                <span className="material-symbols-outlined text-primary text-[22px]">notifications</span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-0.5 bg-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white dark:border-gray-800">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
               <UserButton afterSignOutUrl="/#" />
             </Show>
           </div>
