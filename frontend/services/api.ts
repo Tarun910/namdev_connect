@@ -5,6 +5,11 @@ async function getAccessToken(): Promise<string | null> {
   return getClerkSessionToken();
 }
 
+function apiBaseUrl(): string {
+  const raw = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/$/, '');
+  return raw ?? '';
+}
+
 async function request<T>(path: string, init?: RequestInit, bearerToken?: string | null): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -13,7 +18,8 @@ async function request<T>(path: string, init?: RequestInit, bearerToken?: string
   const token = bearerToken !== undefined ? bearerToken : await getAccessToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`/api${path}`, { ...init, headers });
+  const prefix = apiBaseUrl() ? `${apiBaseUrl()}/api` : '/api';
+  const res = await fetch(`${prefix}${path}`, { ...init, headers });
   const text = await res.text();
   let data: unknown = null;
   try {
