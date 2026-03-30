@@ -46,9 +46,39 @@ if (!process.env.CLERK_SECRET_KEY?.trim()) {
 const app = express();
 const port = Number(process.env.PORT) || 5000;
 
+function corsAllowedOrigins(): Set<string> {
+  const out = new Set([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    ...String(process.env.CORS_ORIGINS ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    ...String(process.env.FRONTEND_URL ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ]);
+  return out;
+}
+
+const _corsAllow = corsAllowedOrigins();
+
 app.use(
   cors({
-    origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+    origin(origin, cb) {
+      if (!origin) return cb(null, true);
+      if (_corsAllow.has(origin)) return cb(null, true);
+      try {
+        const host = new URL(origin).hostname;
+        if (host === 'localhost' || host === '127.0.0.1') return cb(null, true);
+        // Production frontends on Vercel (preview + production deployments)
+        if (host.endsWith('.vercel.app')) return cb(null, true);
+      } catch {
+        /* invalid Origin */
+      }
+      cb(null, false);
+    },
     credentials: true,
   })
 );
