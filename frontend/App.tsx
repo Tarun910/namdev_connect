@@ -16,6 +16,8 @@ import Notifications from './pages/Notifications';
 import KundliMilan from './pages/KundliMilan';
 import AICompatibility from './pages/AICompatibility';
 import BottomNav from './components/BottomNav';
+import ClerkRouterProvider from './components/ClerkRouterProvider';
+import ClerkTokenBridge from './components/ClerkTokenBridge';
 import { Language } from './types';
 
 interface LanguageContextType {
@@ -44,7 +46,9 @@ const AppContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isSignedIn, isLoaded } = useAuth();
-  const [isSplashActive, setIsSplashActive] = useState(true);
+  const [isSplashActive, setIsSplashActive] = useState(
+    () => !window.location.hash.includes('/login')
+  );
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme');
     if (saved) return saved === 'dark';
@@ -110,7 +114,11 @@ const AppContent: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
+type AppProps = {
+  publishableKey: string;
+};
+
+const App: React.FC<AppProps> = ({ publishableKey }) => {
   const [language, setLanguage] = useState<Language>(() => {
     return (localStorage.getItem('language') as Language) || 'en';
   });
@@ -123,7 +131,10 @@ const App: React.FC = () => {
   return (
     <LanguageContext.Provider value={{ language, setLanguage: handleSetLanguage }}>
       <Router>
-        <AppContent />
+        <ClerkRouterProvider publishableKey={publishableKey}>
+          <ClerkTokenBridge />
+          <AppContent />
+        </ClerkRouterProvider>
       </Router>
     </LanguageContext.Provider>
   );
