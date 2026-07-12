@@ -41,3 +41,29 @@ npm run dev
 - API: [http://localhost:5000](http://localhost:5000)
 
 If `VITE_CLERK_PUBLISHABLE_KEY` is missing, the app shows a short setup screen instead of crashing.
+
+## Production (Vercel + Railway)
+
+**Frontend (Vercel)** — set only `VITE_*` vars:
+
+| Variable | Value |
+|----------|--------|
+| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key |
+| `VITE_SUPABASE_URL` | `https://YOUR_REF.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Supabase publishable/anon key |
+
+Leave `VITE_API_BASE_URL` **unset** on Vercel — `vercel.json` proxies `/api/*` to Railway.
+
+**Backend (Railway)** — required env:
+
+| Variable | Value |
+|----------|--------|
+| `CLERK_PUBLISHABLE_KEY` | Same as frontend |
+| `CLERK_SECRET_KEY` | Clerk secret |
+| `SUPABASE_URL` | `https://wgpqpfypcaicdjbkhdey.supabase.co` (your project) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase secret key |
+| `PORT` | `5000` (Railway sets this automatically) |
+
+Deploy backend from repo root (`railway.toml` runs `npm run build -w backend`). After deploy, open `https://YOUR-RAILWAY-URL/api/health` — must return `{"ok":true}`. Update the Railway URL in root `vercel.json` under `rewrites` if it changed.
+
+Run `supabase/manual/full_schema_setup.sql` in Supabase SQL Editor before first sign-in.

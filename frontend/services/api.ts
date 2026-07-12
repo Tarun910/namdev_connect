@@ -6,8 +6,18 @@ async function getAccessToken(): Promise<string | null> {
 }
 
 function apiBaseUrl(): string {
+  // Production: same-origin /api (Vercel rewrites → Railway). Local dev: Vite proxy → localhost:5000.
+  if (import.meta.env.PROD) return '';
   const raw = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/$/, '');
   return raw ?? '';
+}
+
+function networkErrorMessage(cause: unknown, url: string): string {
+  const base = apiBaseUrl() || '(same origin /api)';
+  if (cause instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(cause.message)) {
+    return `Cannot reach the API (${base}). If you use Vercel, redeploy the Railway backend and confirm /api/health works. Details: ${cause.message}`;
+  }
+  return cause instanceof Error ? cause.message : 'Request failed';
 }
 
 async function request<T>(path: string, init?: RequestInit, bearerToken?: string | null): Promise<T> {
@@ -19,7 +29,13 @@ async function request<T>(path: string, init?: RequestInit, bearerToken?: string
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const prefix = apiBaseUrl() ? `${apiBaseUrl()}/api` : '/api';
-  const res = await fetch(`${prefix}${path}`, { ...init, headers });
+  const url = `${prefix}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, headers });
+  } catch (e) {
+    throw new Error(networkErrorMessage(e, url));
+  }
   const text = await res.text();
   let data: unknown = null;
   try {

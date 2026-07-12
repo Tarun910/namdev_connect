@@ -852,6 +852,6 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-app.listen(port, () => {
-  console.log(`Namdev Connect API at http://localhost:${port}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`Namdev Connect API at http://0.0.0.0:${port}`);
 });
