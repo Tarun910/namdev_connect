@@ -67,3 +67,17 @@ Leave `VITE_API_BASE_URL` **unset** on Vercel — `vercel.json` proxies `/api/*`
 Deploy backend from repo root (`railway.toml` runs `npm run build -w backend`). After deploy, open `https://YOUR-RAILWAY-URL/api/health` — must return `{"ok":true}`. Update the Railway URL in root `vercel.json` under `rewrites` if it changed.
 
 Run `supabase/manual/full_schema_setup.sql` in Supabase SQL Editor before first sign-in.
+
+### Backend hosting (Railway trial expired?)
+
+**Railway** after trial → **Free plan** ($1 credit/month). Deployments pause when trial ends — open Railway → your service → **Redeploy** (no card needed if you stay on Free). If it asks to upgrade, you can use **Render** instead (see `render.yaml`).
+
+**Render (free alternative):**
+
+1. [render.com](https://render.com) → **New Web Service** → connect GitHub repo
+2. Render detects `render.yaml` — choose **Free** instance
+3. Add env vars: `CLERK_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
+4. Deploy → copy URL (e.g. `https://namdev-connect-api.onrender.com`)
+5. Update root `vercel.json` rewrite destination to that URL + redeploy Vercel
+
+Free Render sleeps after 15 min idle (first request ~1 min slow). Railway Free has similar limits ($1/month cap).
