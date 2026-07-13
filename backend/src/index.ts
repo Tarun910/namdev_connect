@@ -28,6 +28,24 @@ import {
 } from './chatQueries.js';
 import { broadcastMessagesRead, broadcastNewChatMessage } from './chatRealtime.js';
 import { getOrCreateProfileId } from './profiles.js';
+import {
+  loadViewerRowsById,
+  recordProfileView,
+  viewerPreviewFromRow,
+  blurVisitorName,
+} from './profileViews.js';
+import {
+  activateSubscription,
+  buildEntitlements,
+  checkChatAccess,
+  DISCOVER_FILTER_SELECT,
+  filterDiscoverableRows,
+  hasAcceptedInterest,
+  LIMITS,
+  PLANS,
+  resolveIsPremium,
+  type PremiumPlanId,
+} from './entitlements.js';
 import { getSupabaseAdmin } from './supabaseAdmin.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -185,7 +203,8 @@ app.get('/api/profile/me', async (req, res) => {
     res.status(404).json({ error: 'Profile not found' });
     return;
   }
-  res.json(rowToUser(data as Parameters<typeof rowToUser>[0]));
+  const entitlements = await buildEntitlements(sb, user.profileId);
+  res.json({ ...rowToUser(data as Parameters<typeof rowToUser>[0]), entitlements });
 });
 
 app.patch('/api/profile/me', async (req, res) => {
@@ -203,7 +222,39 @@ app.patch('/api/profile/me', async (req, res) => {
     res.status(400).json({ error: error?.message ?? 'Update failed' });
     return;
   }
-  res.json(rowToUser(data as Parameters<typeof rowToUser>[0]));
+  const entitlements = await buildEntitlements(sb, user.profileId);
+  res.json({ ...rowToUser(data as Parameters<typeof rowToUser>[0]), entitlements });
+});
+
+app.post('/api/membership/subscribe', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const plan = (req.body as { plan?: string })?.plan;
+  if (!plan || !(plan in PLANS)) {
+    res.status(400).json({
+      error: 'Invalid plan. Choose monthly, 6months, or 12months.',
+      code: 'INVALID_PLAN',
+    });
+    return;
+  }
+  const sb = getSupabaseAdmin();
+  try {
+    const { expiresAt, plan: activatedPlan } = await activateSubscription(
+      sb,
+      user.profileId,
+      plan as PremiumPlanId
+    );
+    const entitlements = await buildEntitlements(sb, user.profileId);
+    res.json({
+      ok: true,
+      plan: activatedPlan,
+      priceInr: PLANS[activatedPlan].priceInr,
+      expiresAt,
+      entitlements,
+    });
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Subscription failed' });
+  }
 });
 
 /* --- Photo verification API (delayed; enable with rekognitionCompare + env) ---
@@ -314,6 +365,99 @@ app.get('/api/profile/:id', async (req, res) => {
   res.json({ ...profile, isSaved });
 });
 
+app.get('/api/profile/:id/contact', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const targetId = req.params.id;
+  if (targetId === user.profileId) {
+    res.status(400).json({ error: 'Cannot view your own contact via this route', code: 'INVALID' });
+    return;
+  }
+  const sb = getSupabaseAdmin();
+  const entitlements = await buildEntitlements(sb, user.profileId);
+  if (!entitlements.canSeeContact) {
+    res.status(402).json({
+      error: 'Contact details are available for Premium members.',
+      code: 'PREMIUM_REQUIRED',
+    });
+    return;
+  }
+  const accepted = await hasAcceptedInterest(sb, user.profileId, targetId);
+  if (!accepted) {
+    res.status(403).json({
+      error: 'Contact is available after interest is mutually accepted.',
+      code: 'INTEREST_NOT_ACCEPTED',
+    });
+    return;
+  }
+  const { data, error } = await sb
+    .from('profiles')
+    .select('phone, email')
+    .eq('id', targetId)
+    .single();
+  if (error || !data) {
+    res.status(404).json({ error: 'Profile not found' });
+    return;
+  }
+  const row = data as { phone?: string | null; email?: string | null };
+  res.json({
+    phone: row.phone?.trim() || null,
+    email: row.email?.trim() || null,
+  });
+});
+
+app.get('/api/premium/kundli/:partnerId', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const sb = getSupabaseAdmin();
+  const entitlements = await buildEntitlements(sb, user.profileId);
+  if (!entitlements.canUseKundli) {
+    res.status(402).json({
+      error: 'Kundli Milan is a Premium feature.',
+      code: 'PREMIUM_REQUIRED',
+    });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.get('/api/premium/compatibility/:partnerId', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const sb = getSupabaseAdmin();
+  const entitlements = await buildEntitlements(sb, user.profileId);
+  if (!entitlements.canUseCompatibility) {
+    res.status(402).json({
+      error: 'AI Compatibility is a Premium feature.',
+      code: 'PREMIUM_REQUIRED',
+    });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/profile/:id/view', async (req, res) => {
+  const user = await requireApiUser(req, res);
+  if (!user) return;
+  const viewedId = req.params.id;
+  if (viewedId === user.profileId) {
+    res.json({ ok: true });
+    return;
+  }
+  const sb = getSupabaseAdmin();
+  const { data: target, error } = await sb.from('profiles').select('id').eq('id', viewedId).maybeSingle();
+  if (error || !target) {
+    res.status(404).json({ error: 'Profile not found' });
+    return;
+  }
+  try {
+    await recordProfileView(sb, user.profileId, viewedId);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : 'Could not record view' });
+  }
+});
+
 app.get('/api/saved-interests', async (req, res) => {
   const user = await requireApiUser(req, res);
   if (!user) return;
@@ -357,6 +501,21 @@ app.post('/api/saved-interests', async (req, res) => {
     return;
   }
   const sb = getSupabaseAdmin();
+  const entitlements = await buildEntitlements(sb, user.profileId);
+  if (!entitlements.isPremium) {
+    const { count } = await sb
+      .from('saved_interests')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.profileId);
+    if ((count ?? 0) >= LIMITS.FREE_SAVED) {
+      res.status(402).json({
+        error: `Free plan allows up to ${LIMITS.FREE_SAVED} saved profiles. Upgrade for unlimited saves.`,
+        code: 'SAVE_LIMIT',
+        limit: LIMITS.FREE_SAVED,
+      });
+      return;
+    }
+  }
   const { error } = await sb.from('saved_interests').insert({
     user_id: user.profileId,
     target_profile_id: targetProfileId,
@@ -409,6 +568,15 @@ app.post('/api/interest-requests', async (req, res) => {
     return;
   }
   const sb = getSupabaseAdmin();
+  const senderEnt = await buildEntitlements(sb, user.profileId);
+  if (!senderEnt.discoverable) {
+    res.status(403).json({
+      error: `Complete your basic profile (name, location, profession, education, photo) to send interest.`,
+      code: 'PROFILE_INCOMPLETE',
+    });
+    return;
+  }
+
   const { data: target, error: tErr } = await sb.from('profiles').select('id').eq('id', toProfileId).maybeSingle();
   if (tErr || !target) {
     res.status(404).json({ error: 'Profile not found' });
@@ -449,6 +617,18 @@ app.post('/api/interest-requests', async (req, res) => {
     }
     requestId = updated.id as string;
   } else {
+    if (
+      !senderEnt.isPremium &&
+      senderEnt.interestsRemaining !== null &&
+      senderEnt.interestsRemaining <= 0
+    ) {
+      res.status(402).json({
+        error: `Free plan includes ${LIMITS.FREE_INTERESTS_PER_MONTH} interests per month. Upgrade for unlimited.`,
+        code: 'INTEREST_LIMIT',
+        limit: LIMITS.FREE_INTERESTS_PER_MONTH,
+      });
+      return;
+    }
     const { data: inserted, error: insErr } = await sb
       .from('interest_requests')
       .insert({
@@ -572,7 +752,7 @@ app.post('/api/interest-requests/:id/accept', async (req, res) => {
   await sb.from('notifications').insert({
     user_id: r.from_user_id,
     title: 'Interest accepted',
-    body: `${accepterName} accepted your interest. You can start a chat.`,
+    body: `${accepterName} accepted your interest. Upgrade to Premium to start chatting.`,
     time_label: 'Just now',
     is_read: false,
     type: 'interest',
@@ -623,7 +803,7 @@ app.post('/api/interest-requests/:id/reject', async (req, res) => {
   res.json({ ok: true, status: 'rejected' });
 });
 
-/* Featured profiles for home — lightweight list (no full gallery payloads). */
+/* Featured profiles for home — discoverable profiles only (60%+ complete). */
 app.get('/api/profiles/featured', async (req, res) => {
   const user = await requireApiUser(req, res);
   if (!user) return;
@@ -631,16 +811,18 @@ app.get('/api/profiles/featured', async (req, res) => {
   const sb = getSupabaseAdmin();
   const { data, error } = await sb
     .from('profiles')
-    .select(LIST_PROFILE_SELECT)
+    .select(DISCOVER_FILTER_SELECT)
     .neq('id', user.profileId)
     .order('updated_at', { ascending: false })
-    .limit(limit);
+    .limit(limit * 3);
   if (error) {
     res.status(400).json({ error: error.message });
     return;
   }
-  const rows = (data ?? []) as Parameters<typeof rowToProfileCard>[0][];
-  res.json(rows.map((r) => rowToProfileCard(r)));
+  const eligible = filterDiscoverableRows(
+    (data ?? []) as Parameters<typeof rowToProfileCard>[0][]
+  ).slice(0, limit);
+  res.json(eligible.map((r) => rowToProfileCard(r)));
 });
 
 app.get('/api/profiles', async (req, res) => {
@@ -649,16 +831,18 @@ app.get('/api/profiles', async (req, res) => {
   const sb = getSupabaseAdmin();
   const { data, error } = await sb
     .from('profiles')
-    .select(LIST_PROFILE_SELECT)
+    .select(DISCOVER_FILTER_SELECT)
     .neq('id', user.profileId)
     .order('updated_at', { ascending: false })
-    .limit(80);
+    .limit(240);
   if (error) {
     res.status(400).json({ error: error.message });
     return;
   }
-  const rows = (data ?? []) as Parameters<typeof rowToProfileCard>[0][];
-  res.json(rows.map((r) => rowToProfileCard(r)));
+  const eligible = filterDiscoverableRows(
+    (data ?? []) as Parameters<typeof rowToProfileCard>[0][]
+  ).slice(0, 80);
+  res.json(eligible.map((r) => rowToProfileCard(r)));
 });
 
 app.get('/api/chat/conversations', async (req, res) => {
@@ -758,6 +942,12 @@ app.get('/api/chat/:partnerId/messages', async (req, res) => {
   const sb = getSupabaseAdmin();
   const me = user.profileId;
 
+  const access = await checkChatAccess(sb, me, partnerId);
+  if (!access.allowed) {
+    res.status(access.status).json({ error: access.error, code: access.code });
+    return;
+  }
+
   const { updated: markedRead, error: markErr } = await markIncomingFromPartnerRead(sb, me, partnerId);
   if (markErr) {
     res.status(400).json({ error: markErr.message });
@@ -785,6 +975,11 @@ app.post('/api/chat/messages', async (req, res) => {
     return;
   }
   const sb = getSupabaseAdmin();
+  const access = await checkChatAccess(sb, user.profileId, String(receiverId));
+  if (!access.allowed) {
+    res.status(access.status).json({ error: access.error, code: access.code });
+    return;
+  }
   const { data, error } = await sb
     .from('messages')
     .insert({
@@ -814,6 +1009,31 @@ app.get('/api/notifications', async (req, res) => {
   const user = await requireApiUser(req, res);
   if (!user) return;
   const sb = getSupabaseAdmin();
+  let meRow: { is_premium?: boolean | null; premium_expires_at?: string | null } | null = null;
+  const { data: meFull, error: meFullErr } = await sb
+    .from('profiles')
+    .select('is_premium, premium_expires_at')
+    .eq('id', user.profileId)
+    .single();
+  if (meFullErr && /column|does not exist|42703/i.test(meFullErr.message)) {
+    const { data: meLegacy, error: meLegacyErr } = await sb
+      .from('profiles')
+      .select('is_premium')
+      .eq('id', user.profileId)
+      .single();
+    if (meLegacyErr) {
+      res.status(400).json({ error: meLegacyErr.message });
+      return;
+    }
+    meRow = meLegacy as { is_premium?: boolean | null };
+  } else if (meFullErr) {
+    res.status(400).json({ error: meFullErr.message });
+    return;
+  } else {
+    meRow = meFull as { is_premium?: boolean | null; premium_expires_at?: string | null };
+  }
+  const isPremium = resolveIsPremium(meRow);
+
   const { data, error } = await sb
     .from('notifications')
     .select('*')
@@ -824,7 +1044,36 @@ app.get('/api/notifications', async (req, res) => {
     return;
   }
   const rows = (data ?? []) as Parameters<typeof rowToNotification>[0][];
-  res.json(rows.map((r) => rowToNotification(r)));
+  const viewerIds = rows
+    .filter((r) => r.type === 'profile_view' && r.viewer_profile_id)
+    .map((r) => String(r.viewer_profile_id));
+  const viewersById = await loadViewerRowsById(sb, viewerIds);
+
+  const out = rows.map((r) => {
+    const base = rowToNotification(r);
+    if (r.type !== 'profile_view' || !r.viewer_profile_id) return base;
+    const viewerRow = viewersById.get(String(r.viewer_profile_id));
+    if (!viewerRow) {
+      return {
+        ...base,
+        body: isPremium ? base.body : 'Someone viewed your profile',
+        viewer: {
+          name: blurVisitorName('Someone'),
+          imageUrl: 'https://images.unsplash.com/photo-1511367461989-f85a21fda167?w=200&h=200&fit=crop&blur=10',
+          blurred: true,
+        },
+      };
+    }
+    const viewer = viewerPreviewFromRow(viewerRow, isPremium);
+    return {
+      ...base,
+      body: isPremium
+        ? `${viewer.name} viewed your profile`
+        : `${viewer.name} viewed your profile — upgrade to see who`,
+      viewer,
+    };
+  });
+  res.json(out);
 });
 
 app.post('/api/notifications/mark-read', async (req, res) => {

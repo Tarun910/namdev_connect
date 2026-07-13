@@ -5,6 +5,7 @@ import { useAuth } from '@clerk/react';
 import { LanguageContext } from '../App';
 import { useTranslation } from '../services/i18n';
 import { authorizedFetch } from '../services/api';
+import { attemptNavigation } from '../services/navigationGuard';
 
 const BottomNav: React.FC = () => {
   const navigate = useNavigate();
@@ -53,7 +54,7 @@ const BottomNav: React.FC = () => {
     { label: t('discover'), icon: 'diversity_3', path: '/discover' },
     { label: t('saved_interests'), icon: 'favorite', path: '/saved-interests' },
     { label: t('chats'), icon: 'chat_bubble', path: '/chats' },
-    { label: t('profile'), icon: 'person', path: '/complete-profile' },
+    { label: t('profile'), icon: 'person', path: '/profile/me' },
   ];
 
   return (
@@ -61,13 +62,17 @@ const BottomNav: React.FC = () => {
       {navItems.map((item) => {
         const isActive =
           location.pathname === item.path ||
+          (item.path === '/profile/me' && location.pathname === '/complete-profile') ||
           (item.path === '/saved-interests' && location.pathname.startsWith('/saved-interests'));
         const unread = item.path === '/chats' ? chatUnreadTotal : 0;
         return (
           <button
             key={item.label}
             type="button"
-            onClick={() => navigate(item.path)}
+            onClick={() => {
+              if (location.pathname === item.path) return;
+              attemptNavigation(() => navigate(item.path));
+            }}
             className={`flex flex-col items-center justify-center gap-0.5 min-w-0 py-1 transition-colors ${
               isActive ? 'text-primary' : 'text-gray-400 dark:text-gray-500'
             }`}

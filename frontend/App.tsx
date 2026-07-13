@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/react';
 import { HashRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import BottomNav from './components/BottomNav';
 import PageLoader from './components/PageLoader';
+import UnsavedChangesModalHost from './components/UnsavedChangesModalHost';
 import ClerkRouterProvider from './components/ClerkRouterProvider';
 import ClerkTokenBridge from './components/ClerkTokenBridge';
 import { Language } from './types';
@@ -18,6 +19,7 @@ const Chat = lazy(() => import('./pages/Chat'));
 const Login = lazy(() => import('./pages/Login'));
 const Membership = lazy(() => import('./pages/Membership'));
 const CompleteProfile = lazy(() => import('./pages/CompleteProfile'));
+const MyProfile = lazy(() => import('./pages/MyProfile'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const KundliMilan = lazy(() => import('./pages/KundliMilan'));
 const AICompatibility = lazy(() => import('./pages/AICompatibility'));
@@ -111,6 +113,7 @@ const AppContent: React.FC = () => {
             <Route path="/profile/:id" element={<ProfileDetail />} />
             <Route path="/chat/:id" element={<Chat />} />
             <Route path="/membership" element={<Membership />} />
+            <Route path="/profile/me" element={<MyProfile />} />
             <Route path="/complete-profile" element={<CompleteProfile />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/kundli/:id" element={<KundliMilan />} />
@@ -119,6 +122,7 @@ const AppContent: React.FC = () => {
         </Suspense>
       </div>
       {!hideBottomNav && <BottomNav />}
+      <UnsavedChangesModalHost />
     </div>
   );
 };

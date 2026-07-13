@@ -1,7 +1,7 @@
 
 import React, { useEffect, useState, useContext, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../services/api';
+import { api, ApiError } from '../services/api';
 import { User, Profile } from '../types';
 import { LanguageContext } from '../App';
 import { useTranslation } from '../services/i18n';
@@ -14,18 +14,29 @@ const AICompatibility: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [targetProfile, setTargetProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gateError, setGateError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (id) {
-      Promise.all([
-        api.profile.getMe(),
-        api.profile.getById(id)
-      ]).then(([me, target]) => {
+    if (!id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await api.membership.checkCompatibility(id);
+        const [me, target] = await Promise.all([api.profile.getMe(), api.profile.getById(id)]);
+        if (cancelled) return;
         setCurrentUser(me);
         if (target) setTargetProfile(target);
-        setLoading(false);
-      });
-    }
+      } catch (e) {
+        if (!cancelled) {
+          setGateError(e instanceof ApiError ? e.message : 'Premium required for AI Compatibility');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
 
   const matchInsights = useMemo(() => {
@@ -63,6 +74,22 @@ const AICompatibility: React.FC = () => {
       ]
     };
   }, [currentUser, targetProfile, t]);
+
+  if (gateError) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center px-6 text-center bg-background-light dark:bg-[#1d292b]">
+        <span className="material-symbols-outlined text-[#0f7985] text-5xl mb-4">lock</span>
+        <p className="text-sm text-gray-600 dark:text-gray-300 mb-6">{gateError}</p>
+        <button
+          type="button"
+          onClick={() => navigate('/membership')}
+          className="px-6 py-3 rounded-xl bg-[#0f7985] text-white text-sm font-bold"
+        >
+          View Premium Plans
+        </button>
+      </div>
+    );
+  }
 
   if (loading || !currentUser || !targetProfile || !matchInsights) {
     return (

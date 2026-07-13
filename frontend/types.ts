@@ -28,11 +28,33 @@ export interface Profile {
   interests?: string[];
 }
 
-export type Language = 'en' | 'hi';
+export interface UserEntitlements {
+  isPremium: boolean;
+  premiumExpiresAt: string | null;
+  premiumPlan: 'monthly' | '6months' | '12months' | null;
+  profileCompletionPercent: number;
+  discoverable: boolean;
+  savedCount: number;
+  savedLimit: number | null;
+  savedRemaining: number | null;
+  interestsSentThisMonth: number;
+  interestsLimit: number | null;
+  interestsRemaining: number | null;
+  freeChatAvailable: boolean;
+  freeChatPartnerId: string | null;
+  canUseKundli: boolean;
+  canUseCompatibility: boolean;
+  canSeeContact: boolean;
+  canSeeProfileVisitors: boolean;
+  canChat: boolean;
+}
+
+export type PremiumPlanId = 'monthly' | '6months' | '12months';
 
 export interface User extends Profile {
   phone: string;
   email?: string;
+  entitlements?: UserEntitlements;
 }
 
 export interface Message {
@@ -81,5 +103,15 @@ export interface AppNotification {
   body: string;
   time: string;
   isRead: boolean;
-  type: 'interest' | 'message' | 'system' | 'verify';
+  type: 'interest' | 'message' | 'system' | 'verify' | 'profile_view';
+  viewerProfileId?: string;
+  viewer?: {
+    id?: string;
+    name: string;
+    imageUrl: string;
+    age?: number;
+    location?: string;
+    profession?: string;
+    blurred: boolean;
+  };
 }

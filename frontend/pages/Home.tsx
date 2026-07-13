@@ -41,9 +41,27 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const needsProfileSetup = useMemo(() => {
-    if (!me) return true;
-    return profileCompletionPercent(me) < 60;
+    if (!me) return false;
+    if (me.entitlements) return !me.entitlements.discoverable;
+    const checks = [
+      !!(me.name?.trim() && me.name !== 'Member'),
+      !!me.location?.trim(),
+      !!me.profession?.trim(),
+      !!me.education?.trim(),
+      !!me.bio?.trim(),
+      !!(me.phone && me.phone.replace(/\D/g, '').length >= 10),
+      !!me.height?.trim(),
+      !!me.gotra?.trim(),
+      !!((me.galleryUrls?.length ?? 0) > 0 || !!me.imageUrl?.trim()),
+    ];
+    return checks.filter(Boolean).length < 5;
   }, [me]);
+
+  const showCreateProfileCta = useMemo(() => {
+    if (!isSignedIn) return true;
+    if (!me) return false;
+    return needsProfileSetup;
+  }, [isSignedIn, me, needsProfileSetup]);
 
   const loadFeatured = useCallback(async () => {
     if (!isLoaded) return;
@@ -98,8 +116,8 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
       navigate('/login');
       return;
     }
-    navigate('/complete-profile');
-  }, [isLoaded, isSignedIn, navigate]);
+    navigate(needsProfileSetup ? '/complete-profile' : '/profile/me');
+  }, [isLoaded, isSignedIn, navigate, needsProfileSetup]);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
@@ -154,7 +172,7 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
                   </span>
                 )}
               </button>
-              <ProfileAvatarButton user={me} onClick={() => navigate('/complete-profile')} />
+              <ProfileAvatarButton user={me} onClick={() => navigate('/profile/me')} />
             </Show>
           </div>
         </div>
@@ -180,7 +198,7 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
-              {(!isSignedIn || needsProfileSetup) && (
+              {showCreateProfileCta && (
                 <button
                   onClick={handleCreateProfile}
                   className="flex-1 bg-white text-primary hover:bg-gray-100 h-12 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95 shadow-xl shadow-black/20"
@@ -191,7 +209,7 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
               )}
               <button 
                 onClick={() => navigate('/discover')}
-                className={`${(!isSignedIn || needsProfileSetup) ? 'flex-1' : 'w-full'} bg-primary/20 backdrop-blur-md border border-white/20 text-white h-12 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95`}
+                className={`${showCreateProfileCta ? 'flex-1' : 'w-full'} bg-primary/20 backdrop-blur-md border border-white/20 text-white h-12 rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95`}
                 type="button"
               >
                 {t('matches')}

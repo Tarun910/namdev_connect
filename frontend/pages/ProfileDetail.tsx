@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useContext, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@clerk/react';
-import { authorizedFetch } from '../services/api';
+import { authorizedFetch, ApiError } from '../services/api';
 import { User, Profile } from '../types';
 import { LanguageContext } from '../App';
 import { useTranslation } from '../services/i18n';
@@ -23,6 +23,8 @@ const ProfileDetail: React.FC = () => {
   const [interestStatus, setInterestStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected'>('none');
   const [interestSending, setInterestSending] = useState(false);
   const [interestHint, setInterestHint] = useState<string | null>(null);
+  const [contactInfo, setContactInfo] = useState<{ phone: string | null; email: string | null } | null>(null);
+  const [contactLoading, setContactLoading] = useState(false);
 
   const loadPage = useCallback(async () => {
     if (!id) return;
@@ -47,6 +49,11 @@ const ProfileDetail: React.FC = () => {
       setIsSaved(Boolean(p.isSaved));
       const st = sent.status as 'none' | 'pending' | 'accepted' | 'rejected';
       setInterestStatus(st === 'none' ? 'none' : st);
+      if (me.id !== p.id) {
+        void authorizedFetch(`/profile/${encodeURIComponent(id)}/view`, token, { method: 'POST', body: '{}' }).catch(
+          () => undefined
+        );
+      }
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not load profile');
       setProfile(null);
@@ -66,7 +73,34 @@ const ProfileDetail: React.FC = () => {
 
   useEffect(() => {
     setPhotoIdx(0);
+    setContactInfo(null);
   }, [id, profile?.id]);
+
+  useEffect(() => {
+    if (!profile || !currentUser || currentUser.id === profile.id) return;
+    const canSee = currentUser.entitlements?.canSeeContact ?? currentUser.isPremium;
+    if (!canSee || interestStatus !== 'accepted') return;
+    let cancelled = false;
+    void (async () => {
+      setContactLoading(true);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const data = await authorizedFetch<{ phone: string | null; email: string | null }>(
+          `/profile/${encodeURIComponent(profile.id)}/contact`,
+          token
+        );
+        if (!cancelled) setContactInfo(data);
+      } catch {
+        if (!cancelled) setContactInfo(null);
+      } finally {
+        if (!cancelled) setContactLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile, currentUser, interestStatus, getToken]);
 
   const toggleFavorite = async () => {
     if (!profile || !id || savingFavorite) return;
@@ -92,7 +126,10 @@ const ProfileDetail: React.FC = () => {
         setFavoriteHint(t('heart_saved'));
       }
     } catch (e) {
-      setFavoriteHint(e instanceof Error ? e.message : 'Could not update');
+      const msg = e instanceof ApiError && e.code === 'SAVE_LIMIT'
+        ? `${e.message} Upgrade to save more.`
+        : e instanceof Error ? e.message : 'Could not update';
+      setFavoriteHint(msg);
     } finally {
       setSavingFavorite(false);
       window.setTimeout(() => setFavoriteHint(null), 2200);
@@ -116,7 +153,13 @@ const ProfileDetail: React.FC = () => {
       setInterestStatus('pending');
       setInterestHint(t('interest_sent'));
     } catch (e) {
-      setInterestHint(e instanceof Error ? e.message : t('interest_error'));
+      const msg =
+        e instanceof ApiError && (e.code === 'INTEREST_LIMIT' || e.code === 'PROFILE_INCOMPLETE')
+          ? e.message
+          : e instanceof Error
+            ? e.message
+            : t('interest_error');
+      setInterestHint(msg);
     } finally {
       setInterestSending(false);
       window.setTimeout(() => setInterestHint(null), 2600);
@@ -155,16 +198,18 @@ const ProfileDetail: React.FC = () => {
   }
 
   const isOwnProfile = currentUser?.id === profile.id;
+  const isPremiumUser = currentUser?.entitlements?.isPremium ?? currentUser?.isPremium;
 
   const interestPrimaryLabel =
     interestStatus === 'pending'
       ? t('interest_pending')
       : interestStatus === 'accepted'
-        ? t('interest_accepted_chat')
+        ? isPremiumUser
+          ? t('interest_accepted_chat')
+          : 'Upgrade to chat'
         : interestStatus === 'rejected'
           ? t('interest_send_again')
           : t('send_interest');
-  const isPremiumUser = currentUser?.isPremium;
   const heroUrl =
     photoSlides[Math.min(photoIdx, Math.max(0, photoSlides.length - 1))] ||
     profile.imageUrl;
@@ -180,26 +225,38 @@ const ProfileDetail: React.FC = () => {
           <span className="material-symbols-outlined">arrow_back_ios_new</span>
         </button>
         <div className="flex flex-col items-end gap-1 pointer-events-auto">
-          {!isOwnProfile && (
+          {isOwnProfile ? (
             <button
               type="button"
-              disabled={savingFavorite}
-              onClick={() => void toggleFavorite()}
-              className="bg-black/40 backdrop-blur-lg rounded-full p-2 text-white border border-white/20 disabled:opacity-50 active:scale-95 transition-transform"
-              title={isSaved ? t('heart_removed') : t('heart_saved')}
+              onClick={() => navigate('/complete-profile')}
+              className="bg-black/40 backdrop-blur-lg rounded-full p-2 text-white border border-white/20 active:scale-95 transition-transform"
+              title={t('edit_profile')}
+              aria-label={t('edit_profile')}
             >
-              <span
-                className="material-symbols-outlined text-[22px]"
-                style={{ fontVariationSettings: isSaved ? "'FILL' 1" : "'FILL' 0" }}
-              >
-                favorite
-              </span>
+              <span className="material-symbols-outlined text-[22px]">edit</span>
             </button>
-          )}
-          {favoriteHint && (
-            <span className="text-[10px] font-bold text-white bg-black/60 px-2 py-1 rounded-lg max-w-[10rem] text-center leading-tight">
-              {favoriteHint}
-            </span>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={savingFavorite}
+                onClick={() => void toggleFavorite()}
+                className="bg-black/40 backdrop-blur-lg rounded-full p-2 text-white border border-white/20 disabled:opacity-50 active:scale-95 transition-transform"
+                title={isSaved ? t('heart_removed') : t('heart_saved')}
+              >
+                <span
+                  className="material-symbols-outlined text-[22px]"
+                  style={{ fontVariationSettings: isSaved ? "'FILL' 1" : "'FILL' 0" }}
+                >
+                  favorite
+                </span>
+              </button>
+              {favoriteHint && (
+                <span className="text-[10px] font-bold text-white bg-black/60 px-2 py-1 rounded-lg max-w-[10rem] text-center leading-tight">
+                  {favoriteHint}
+                </span>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -381,11 +438,24 @@ const ProfileDetail: React.FC = () => {
             <h3 className="text-sm font-black text-primary uppercase tracking-[0.15em]">{t('contact_info')}</h3>
           </div>
           <div className="relative overflow-hidden bg-white dark:bg-gray-800 rounded-3xl p-6 border border-primary/10 shadow-xl text-center">
-            {isPremiumUser ? (
+            {isPremiumUser && interestStatus === 'accepted' ? (
               <div className="space-y-4 text-left">
-                <p className="font-black text-xl">+91 98234 56789</p>
-                <p className="font-black text-lg text-gray-500">connect@namdev.com</p>
+                {contactLoading ? (
+                  <div className="size-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                ) : (
+                  <>
+                    {contactInfo?.phone && <p className="font-black text-xl">{contactInfo.phone}</p>}
+                    {contactInfo?.email && (
+                      <p className="font-black text-lg text-gray-500">{contactInfo.email}</p>
+                    )}
+                    {!contactInfo?.phone && !contactInfo?.email && (
+                      <p className="text-sm text-gray-500">Contact not shared yet.</p>
+                    )}
+                  </>
+                )}
               </div>
+            ) : isPremiumUser ? (
+              <p className="text-sm text-gray-500">Available after interest is accepted.</p>
             ) : (
               <div className="flex flex-col items-center">
                 <span className="material-symbols-outlined text-primary text-4xl mb-3">lock</span>
@@ -407,7 +477,13 @@ const ProfileDetail: React.FC = () => {
         <div className="flex items-center gap-3 w-full">
           <div className="flex gap-2 shrink-0">
             <button 
-              onClick={() => navigate(`/kundli/${profile.id}`)}
+              onClick={() => {
+                if (!isPremiumUser) {
+                  navigate('/membership');
+                  return;
+                }
+                navigate(`/kundli/${profile.id}`);
+              }}
               className="size-12 bg-saffron/10 text-saffron rounded-2xl flex items-center justify-center border border-saffron/20 active:scale-90 transition-transform"
               title={t('kundli_milan')}
               type="button"
@@ -415,7 +491,13 @@ const ProfileDetail: React.FC = () => {
               <span className="material-symbols-outlined text-2xl">auto_awesome</span>
             </button>
             <button 
-              onClick={() => navigate(`/compatibility/${profile.id}`)}
+              onClick={() => {
+                if (!isPremiumUser) {
+                  navigate('/membership');
+                  return;
+                }
+                navigate(`/compatibility/${profile.id}`);
+              }}
               className="size-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center border border-primary/20 active:scale-90 transition-transform"
               title={t('ai_compatibility')}
               type="button"
@@ -424,12 +506,23 @@ const ProfileDetail: React.FC = () => {
             </button>
             {!isOwnProfile && (
               <button
-                onClick={() => navigate(`/chat/${profile.id}`)}
-                className="size-12 bg-gray-100 dark:bg-white/10 text-primary rounded-2xl flex items-center justify-center border border-gray-200 dark:border-gray-700 active:scale-90 transition-transform"
-                title="Chat"
+                onClick={() => {
+                  if (interestStatus === 'accepted' && !isPremiumUser) {
+                    navigate('/membership');
+                    return;
+                  }
+                  navigate(`/chat/${profile.id}`);
+                }}
+                className="size-12 bg-gray-100 dark:bg-white/10 text-primary rounded-2xl flex items-center justify-center border border-gray-200 dark:border-gray-700 active:scale-90 transition-transform relative"
+                title={isPremiumUser ? 'Chat' : 'Premium chat'}
                 type="button"
               >
                 <span className="material-symbols-outlined text-2xl">chat</span>
+                {!isPremiumUser && (
+                  <span className="absolute -top-1 -right-1 size-4 rounded-full bg-saffron text-white flex items-center justify-center">
+                    <span className="material-symbols-outlined text-[10px]">lock</span>
+                  </span>
+                )}
               </button>
             )}
           </div>
@@ -438,7 +531,8 @@ const ProfileDetail: React.FC = () => {
               type="button"
               onClick={() => {
                 if (interestStatus === 'accepted') {
-                  navigate(`/chat/${profile.id}`);
+                  if (isPremiumUser) navigate(`/chat/${profile.id}`);
+                  else navigate('/membership');
                   return;
                 }
                 void sendInterest();
@@ -460,7 +554,7 @@ const ProfileDetail: React.FC = () => {
               className="flex-1 bg-primary text-white h-12 rounded-2xl font-black text-sm shadow-xl flex items-center justify-center gap-2 uppercase tracking-widest active:scale-[0.98] transition-all"
             >
               <span className="material-symbols-outlined text-xl">edit</span>
-              {t('complete_profile')}
+              {t('edit_profile')}
             </button>
           )}
         </div>

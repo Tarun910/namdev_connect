@@ -1,4 +1,4 @@
-import type { AppNotification, Message, Profile, User } from '../types';
+import type { AppNotification, Message, PremiumPlanId, Profile, User } from '../types';
 import { clerkSignOut, getClerkSessionToken } from './clerk-session';
 import { fetchWithCache, invalidateApiCache } from './apiCache';
 
@@ -21,16 +21,32 @@ function networkErrorMessage(cause: unknown, url: string): string {
   return cause instanceof Error ? cause.message : 'Request failed';
 }
 
-function parseApiErrorBody(text: string, statusText: string): string {
-  if (!text) return statusText || 'Request failed';
+function parseApiErrorBody(text: string, statusText: string, status: number): ApiError {
+  if (!text) return new ApiError(statusText || 'Request failed', status);
   if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
-    return 'API returned HTML instead of JSON. On Vercel set VITE_API_BASE_URL=https://namdev-connect-api.onrender.com and redeploy.';
+    return new ApiError(
+      'API returned HTML instead of JSON. On Vercel set VITE_API_BASE_URL=https://namdev-connect-api.onrender.com and redeploy.',
+      status
+    );
   }
   try {
-    const data = JSON.parse(text) as { error?: string };
-    return typeof data.error === 'string' ? data.error : statusText || 'Request failed';
+    const data = JSON.parse(text) as { error?: string; code?: string };
+    const msg = typeof data.error === 'string' ? data.error : statusText || 'Request failed';
+    return new ApiError(msg, status, typeof data.code === 'string' ? data.code : undefined);
   } catch {
-    return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+    return new ApiError(text.length > 200 ? `${text.slice(0, 200)}…` : text, status);
+  }
+}
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
   }
 }
 
@@ -52,16 +68,16 @@ async function request<T>(path: string, init?: RequestInit, bearerToken?: string
   }
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(parseApiErrorBody(text, res.statusText));
+    throw parseApiErrorBody(text, res.statusText, res.status);
   }
   if (!text) return null as T;
   if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
-    throw new Error(parseApiErrorBody(text, res.statusText));
+    throw parseApiErrorBody(text, res.statusText, res.status);
   }
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(parseApiErrorBody(text, res.statusText));
+    throw parseApiErrorBody(text, res.statusText, res.status);
   }
 }
 
@@ -110,9 +126,22 @@ export const api = {
         return undefined;
       }
     },
+    getContact: async (id: string): Promise<{ phone: string | null; email: string | null }> =>
+      request(`/profile/${encodeURIComponent(id)}/contact`),
     getAll: async (): Promise<Profile[]> => request('/profiles'),
     getFeatured: async (limit = 8): Promise<Profile[]> =>
       request(`/profiles/featured?limit=${limit}`),
+  },
+  membership: {
+    subscribe: async (plan: PremiumPlanId) =>
+      request<{ ok: boolean; expiresAt: string; plan: PremiumPlanId }>('/membership/subscribe', {
+        method: 'POST',
+        body: JSON.stringify({ plan }),
+      }),
+    checkKundli: async (partnerId: string) =>
+      request<{ ok: boolean }>(`/premium/kundli/${encodeURIComponent(partnerId)}`),
+    checkCompatibility: async (partnerId: string) =>
+      request<{ ok: boolean }>(`/premium/compatibility/${encodeURIComponent(partnerId)}`),
   },
   chat: {
     getMessages: async (partnerId: string): Promise<Message[]> =>

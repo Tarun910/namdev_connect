@@ -136,7 +136,9 @@ const Dashboard: React.FC<Props> = ({ onToggleTheme, isDark }) => {
   const ringOffset = ringCirc * (1 - completion / 100);
   const firstName = displayFirstName(user);
   const unreadCount = notifications.filter((n) => !n.isRead).length;
-  const needsProfileSetup = completion < 60;
+  const needsProfileSetup = user.entitlements
+    ? !user.entitlements.discoverable
+    : completion < 56;
 
   return (
     <div className="flex flex-col min-h-screen animate-fade-up">
@@ -162,7 +164,7 @@ const Dashboard: React.FC<Props> = ({ onToggleTheme, isDark }) => {
       <header className="sticky top-0 z-50 bg-background-light/90 dark:bg-background-dark/90 backdrop-blur-md flex items-center p-4 justify-between border-b border-gray-100 dark:border-gray-800">
         <div className="flex items-center gap-3">
           <div
-            onClick={() => navigate('/complete-profile')}
+              onClick={() => navigate('/profile/me')}
             className="relative size-10 shrink-0 overflow-hidden rounded-full ring-2 ring-primary/20 cursor-pointer active:scale-90 transition-transform"
           >
             <div
@@ -241,11 +243,11 @@ const Dashboard: React.FC<Props> = ({ onToggleTheme, isDark }) => {
                 </p>
               </div>
               <button
-                onClick={() => navigate('/complete-profile')}
+                onClick={() => navigate(needsProfileSetup ? '/complete-profile' : '/profile/me')}
                 className="mt-2 flex items-center justify-center rounded-lg h-10 px-6 bg-primary text-white text-sm font-bold shadow-lg shadow-primary/20 active:scale-95 transition-transform"
                 type="button"
               >
-                {needsProfileSetup ? t('update_profile') : t('settings')}
+                {needsProfileSetup ? t('update_profile') : t('view_profile')}
               </button>
             </div>
             <div className="relative flex items-center justify-center shrink-0">

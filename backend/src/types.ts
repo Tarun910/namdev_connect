@@ -49,7 +49,17 @@ export interface AppNotification {
   body: string;
   time: string;
   isRead: boolean;
-  type: 'interest' | 'message' | 'system' | 'verify';
+  type: 'interest' | 'message' | 'system' | 'verify' | 'profile_view';
+  viewerProfileId?: string;
+  viewer?: {
+    id?: string;
+    name: string;
+    imageUrl: string;
+    age?: number;
+    location?: string;
+    profession?: string;
+    blurred: boolean;
+  };
 }
 
 export interface AppState {

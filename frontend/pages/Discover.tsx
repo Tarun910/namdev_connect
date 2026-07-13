@@ -167,18 +167,27 @@ const Discover: React.FC = () => {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-20 opacity-40 text-center">
-            <span className="material-symbols-outlined text-6xl mb-4">search_off</span>
-            <p className="font-bold">No matches found.<br/>Try adjusting your filters.</p>
-            <button 
-              onClick={() => {
-                setFilters({ gender: 'All', age: 'All', location: 'All', gotra: 'All' });
-                setVerifiedOnly(false);
-              }}
-              className="mt-4 text-primary font-black uppercase text-xs tracking-widest underline"
-            >
-              Reset All Filters
-            </button>
+          <div className="flex flex-col items-center justify-center py-20 opacity-60 text-center px-6">
+            <span className="material-symbols-outlined text-6xl mb-4 text-primary">person_search</span>
+            <p className="font-bold text-[#191011] dark:text-white mb-2">
+              {profiles.length === 0 ? 'No profiles in Discover yet' : 'No matches found'}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs leading-relaxed mb-4">
+              {profiles.length === 0
+                ? 'Profiles appear here once members add name, location, profession, education, and a photo. Ask others to complete their profile, or check back soon.'
+                : 'Try adjusting your filters.'}
+            </p>
+            {profiles.length > 0 && (
+              <button
+                onClick={() => {
+                  setFilters({ gender: 'All', age: 'All', location: 'All', gotra: 'All' });
+                  setVerifiedOnly(false);
+                }}
+                className="text-primary font-black uppercase text-xs tracking-widest underline"
+              >
+                Reset All Filters
+              </button>
+            )}
           </div>
         )}
       </main>

@@ -1,4 +1,5 @@
 import { uuidKeysEqual } from './chatQueries.js';
+import { resolveIsPremium } from './entitlements.js';
 import type { AppNotification, Message, Profile, User } from './types.js';
 
 type ProfileRow = {
@@ -15,6 +16,8 @@ type ProfileRow = {
   image_url: string;
   is_verified: boolean;
   is_premium: boolean | null;
+  premium_expires_at?: string | null;
+  premium_plan?: string | null;
   height: string | null;
   income: string | null;
   bio: string | null;
@@ -44,7 +47,7 @@ export function rowToUser(row: ProfileRow): User {
     imageUrl: row.image_url,
     galleryUrls: gallery.length ? gallery : undefined,
     isVerified: row.is_verified,
-    isPremium: row.is_premium ?? undefined,
+    isPremium: resolveIsPremium(row) || undefined,
     height: row.height ?? undefined,
     income: row.income ?? undefined,
     bio: row.bio ?? undefined,
@@ -110,6 +113,7 @@ type NotificationRow = {
   is_read: boolean;
   type: AppNotification['type'];
   created_at: string;
+  viewer_profile_id?: string | null;
 };
 
 export function rowToNotification(row: NotificationRow): AppNotification {
@@ -126,13 +130,13 @@ export function rowToNotification(row: NotificationRow): AppNotification {
     time: row.time_label ?? fallback,
     isRead: row.is_read,
     type: row.type,
+    viewerProfileId: row.viewer_profile_id ?? undefined,
   };
 }
 
 const CAMEL_TO_SNAKE: Record<string, string> = {
   imageUrl: 'image_url',
   galleryUrls: 'gallery_urls',
-  isPremium: 'is_premium',
   fatherName: 'father_name',
   motherName: 'mother_name',
   birthDate: 'birth_date',
@@ -147,7 +151,6 @@ const ALLOWED_PATCH_KEYS = new Set([
   'profession',
   'education',
   'image_url',
-  'is_premium',
   'height',
   'income',
   'bio',

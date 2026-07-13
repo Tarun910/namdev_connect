@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect, useContext, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useContext, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { setProfileEditHandlers, resetProfileEditLeaveFlag, attemptNavigation } from '../services/navigationGuard';
 import { useAuth } from '@clerk/react';
 import { authorizedFetch } from '../services/api';
 import { User } from '../types';
@@ -100,6 +101,35 @@ function loadHtmlImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
+function buildSnapshot(formData: Partial<User>, galleryPhotos: string[]): string {
+  const cover =
+    galleryPhotos[0]?.trim() || formData.imageUrl?.trim() || DEFAULT_COVER;
+  const payload = {
+    name: formData.name ?? '',
+    age: formData.age ?? '',
+    gender: formData.gender ?? '',
+    location: formData.location ?? '',
+    profession: formData.profession ?? '',
+    education: formData.education ?? '',
+    bio: formData.bio ?? '',
+    phone: formData.phone ?? '',
+    email: formData.email ?? '',
+    height: formData.height ?? '',
+    income: formData.income ?? '',
+    gotra: formData.gotra ?? '',
+    fatherName: formData.fatherName ?? '',
+    motherName: formData.motherName ?? '',
+    birthDate: formData.birthDate ?? '',
+    diet: formData.diet ?? '',
+    smokeAlcohol: formData.smokeAlcohol ?? '',
+    routine: formData.routine ?? '',
+    interests: [...(formData.interests ?? [])].sort(),
+    imageUrl: cover,
+    galleryUrls: [...galleryPhotos],
+  };
+  return JSON.stringify(payload);
+}
+
 const CompleteProfile: React.FC = () => {
   const navigate = useNavigate();
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -116,10 +146,60 @@ const CompleteProfile: React.FC = () => {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [photoAddMessage, setPhotoAddMessage] = useState<string | null>(null);
   const [photoAdding, setPhotoAdding] = useState(false);
+  const [initialSnapshot, setInitialSnapshot] = useState<string | null>(null);
+  const allowLeaveRef = useRef(false);
+  const snapshotReadyRef = useRef(false);
+  const isDirtyRef = useRef(false);
+  const persistProfileRef = useRef<(() => Promise<User>) | null>(null);
+
+  const isDirty = useMemo(() => {
+    if (!initialSnapshot || initialLoading) return false;
+    return buildSnapshot(formData, galleryPhotos) !== initialSnapshot;
+  }, [initialSnapshot, initialLoading, formData, galleryPhotos]);
+
+  isDirtyRef.current = isDirty;
+
+  const markClean = useCallback(() => {
+    setInitialSnapshot(buildSnapshot(formData, galleryPhotos));
+    allowLeaveRef.current = true;
+    resetProfileEditLeaveFlag();
+  }, [formData, galleryPhotos]);
+
+  useEffect(() => {
+    setProfileEditHandlers({
+      isDirty: () => isDirtyRef.current && !allowLeaveRef.current,
+      save: async () => {
+        setSaveError(null);
+        if (!persistProfileRef.current) throw new Error('Save unavailable');
+        try {
+          await persistProfileRef.current();
+          markClean();
+        } catch (e) {
+          setSaveError(e instanceof Error ? e.message : 'Save failed');
+          throw e;
+        }
+      },
+    });
+    return () => setProfileEditHandlers(null);
+  }, [markClean]);
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [isDirty]);
 
   const loadProfile = useCallback(async () => {
     setLoadError(null);
     setInitialLoading(true);
+    snapshotReadyRef.current = false;
+    allowLeaveRef.current = false;
+    resetProfileEditLeaveFlag();
+    setInitialSnapshot(null);
     try {
       const token = await getToken();
       if (!token) {
@@ -134,9 +214,12 @@ const CompleteProfile: React.FC = () => {
       if (photos.length > MAX_PROFILE_PHOTOS) {
         photos = photos.slice(0, MAX_PROFILE_PHOTOS);
       }
+      const snapshot = buildSnapshot(user, photos);
       setGalleryPhotos(photos);
       setActivePhotoIdx(0);
       setFormData(user);
+      setInitialSnapshot(snapshot);
+      snapshotReadyRef.current = true;
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Could not load profile');
     } finally {
@@ -267,12 +350,15 @@ const CompleteProfile: React.FC = () => {
     });
   };
 
+  persistProfileRef.current = persistProfile;
+
   const handleSave = async () => {
     setSaveError(null);
     setLoading(true);
     try {
       await persistProfile();
-      navigate('/dashboard');
+      markClean();
+      navigate('/profile/me');
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -285,6 +371,7 @@ const CompleteProfile: React.FC = () => {
     setLoading(true);
     try {
       const updatedUser = await persistProfile();
+      markClean();
       if (updatedUser.id) {
         navigate(`/profile/${updatedUser.id}`);
       }
@@ -398,12 +485,12 @@ const CompleteProfile: React.FC = () => {
       <header className="sticky top-0 z-50 bg-background-light/90 dark:bg-background-dark/90 backdrop-blur-md flex items-center px-4 py-4 justify-between border-b border-gray-100 dark:border-gray-800">
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => attemptNavigation(() => navigate('/profile/me'))}
           className="flex items-center justify-center size-10 rounded-full bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 active:scale-90 transition-transform"
         >
           <span className="material-symbols-outlined text-primary">arrow_back</span>
         </button>
-        <h2 className="text-[#191011] dark:text-white text-lg font-bold font-poppins">{t('settings')}</h2>
+        <h2 className="text-[#191011] dark:text-white text-lg font-bold font-poppins">{t('edit_profile')}</h2>
         <div className="size-10"></div>
       </header>
 
@@ -961,7 +1048,7 @@ const CompleteProfile: React.FC = () => {
           </p>
           <button
             type="button"
-            onClick={() => setShowLogoutConfirm(true)}
+            onClick={() => attemptNavigation(() => setShowLogoutConfirm(true))}
             className="w-full flex items-center justify-between p-5 bg-red-50 dark:bg-red-900/10 rounded-2xl border border-red-100 dark:border-red-900/20 active:scale-[0.98] transition-all"
           >
             <div className="flex items-center gap-4">

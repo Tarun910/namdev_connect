@@ -2,10 +2,10 @@
 import React, { useEffect, useState, useCallback, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@clerk/react';
-import { authorizedFetch } from '../services/api';
+import { authorizedFetch, authorizedFetchCached } from '../services/api';
 import { LanguageContext } from '../App';
 import { useTranslation } from '../services/i18n';
-import type { AppNotification, IncomingInterestRequest, Profile } from '../types';
+import type { AppNotification, IncomingInterestRequest, Profile, User } from '../types';
 
 const Notifications: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +14,7 @@ const Notifications: React.FC = () => {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [incoming, setIncoming] = useState<IncomingInterestRequest[]>([]);
+  const [me, setMe] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionId, setActionId] = useState<string | null>(null);
 
@@ -23,12 +24,14 @@ const Notifications: React.FC = () => {
     try {
       const token = await getToken();
       if (!token) return;
-      const [n, inc] = await Promise.all([
+      const [n, inc, meUser] = await Promise.all([
         authorizedFetch<AppNotification[]>('/notifications', token),
         authorizedFetch<IncomingInterestRequest[]>('/interest-requests/incoming', token).catch(() => []),
+        authorizedFetchCached<User>('/profile/me', token),
       ]);
       setNotifications(n);
       setIncoming(inc);
+      setMe(meUser);
       await authorizedFetch('/notifications/mark-read', token, {
         method: 'POST',
         body: JSON.stringify({}),
@@ -71,6 +74,8 @@ const Notifications: React.FC = () => {
         return 'verified';
       case 'message':
         return 'chat';
+      case 'profile_view':
+        return 'visibility';
       default:
         return 'notifications';
     }
@@ -84,10 +89,14 @@ const Notifications: React.FC = () => {
         return 'text-blue-600 bg-blue-50';
       case 'message':
         return 'text-green-600 bg-green-50';
+      case 'profile_view':
+        return 'text-violet-600 bg-violet-50 dark:bg-violet-900/20 dark:text-violet-300';
       default:
         return 'text-gray-600 bg-gray-50';
     }
   };
+
+  const isPremium = Boolean(me?.entitlements?.isPremium ?? me?.isPremium);
 
   return (
     <div className="flex flex-col h-screen bg-background-light dark:bg-background-dark pb-24">
@@ -128,9 +137,7 @@ const Notifications: React.FC = () => {
                           style={{ backgroundImage: `url(${p.imageUrl})` }}
                         />
                         <div className="flex-1 min-w-0">
-                          <p className="font-black text-sm text-[#191011] dark:text-white truncate">
-                            {p.name}
-                          </p>
+                          <p className="font-black text-sm text-[#191011] dark:text-white truncate">{p.name}</p>
                           <p className="text-xs text-gray-500 truncate">
                             {p.age} · {p.location}
                           </p>
@@ -173,36 +180,100 @@ const Notifications: React.FC = () => {
                 <p className="font-bold">All caught up!</p>
               </div>
             ) : (
-              notifications.map((n) => (
-                <div
-                  key={n.id}
-                  className={`flex gap-4 p-4 rounded-xl border transition-all ${
-                    n.isRead
-                      ? 'bg-white/50 dark:bg-white/5 border-gray-50 dark:border-white/5'
-                      : 'bg-white dark:bg-gray-800 border-primary/10 shadow-sm ring-1 ring-primary/5'
-                  }`}
-                >
-                  <div
-                    className={`size-12 shrink-0 rounded-full flex items-center justify-center ${getColor(n.type)}`}
-                  >
-                    <span className="material-symbols-outlined">{getIcon(n.type)}</span>
-                  </div>
-                  <div className="flex-1 space-y-1">
-                    <div className="flex justify-between items-start">
-                      <h3
-                        className={`text-sm font-bold ${
-                          n.isRead ? 'text-gray-700 dark:text-gray-300' : 'text-[#191011] dark:text-white'
-                        }`}
-                      >
-                        {n.title}
-                      </h3>
-                      <span className="text-[10px] text-gray-400 font-medium">{n.time}</span>
+              notifications.map((n) => {
+                if (n.type === 'profile_view' && n.viewer) {
+                  const v = n.viewer;
+                  return (
+                    <div
+                      key={n.id}
+                      className={`rounded-2xl border p-4 transition-all ${
+                        n.isRead
+                          ? 'bg-white/50 dark:bg-white/5 border-gray-50 dark:border-white/5'
+                          : 'bg-white dark:bg-gray-800 border-violet-200 dark:border-violet-800/40 shadow-sm ring-1 ring-violet-500/10'
+                      }`}
+                    >
+                      <div className="flex gap-3 items-start">
+                        <div className="relative shrink-0">
+                          <div
+                            className={`size-14 rounded-xl bg-cover bg-center border border-gray-100 dark:border-gray-600 ${
+                              v.blurred ? 'blur-md scale-105' : ''
+                            }`}
+                            style={{ backgroundImage: `url(${v.imageUrl})` }}
+                          />
+                          {v.blurred && (
+                            <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/20">
+                              <span className="material-symbols-outlined text-white text-xl">lock</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0 space-y-1">
+                          <div className="flex justify-between items-start gap-2">
+                            <h3 className="text-sm font-bold text-[#191011] dark:text-white">{n.title}</h3>
+                            <span className="text-[10px] text-gray-400 font-medium shrink-0">{n.time}</span>
+                          </div>
+                          <p className={`text-sm font-black ${v.blurred ? 'text-gray-500 blur-[2px] select-none' : 'text-primary'}`}>
+                            {v.name}
+                            {!v.blurred && v.age ? `, ${v.age}` : ''}
+                          </p>
+                          {!v.blurred && v.location && (
+                            <p className="text-xs text-gray-500 truncate">{v.location}</p>
+                          )}
+                          <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{n.body}</p>
+                          {v.blurred && !isPremium && (
+                            <button
+                              type="button"
+                              onClick={() => navigate('/membership')}
+                              className="mt-2 w-full py-2.5 rounded-xl bg-primary text-white text-xs font-black uppercase tracking-widest shadow-md active:scale-[0.98]"
+                            >
+                              {t('unlock_profile_visitors')}
+                            </button>
+                          )}
+                          {!v.blurred && v.id && (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/profile/${v.id}`)}
+                              className="mt-2 text-[10px] font-black uppercase tracking-widest text-primary"
+                            >
+                              {t('view_profile')}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{n.body}</p>
+                  );
+                }
+
+                return (
+                  <div
+                    key={n.id}
+                    className={`flex gap-4 p-4 rounded-xl border transition-all ${
+                      n.isRead
+                        ? 'bg-white/50 dark:bg-white/5 border-gray-50 dark:border-white/5'
+                        : 'bg-white dark:bg-gray-800 border-primary/10 shadow-sm ring-1 ring-primary/5'
+                    }`}
+                  >
+                    <div
+                      className={`size-12 shrink-0 rounded-full flex items-center justify-center ${getColor(n.type)}`}
+                    >
+                      <span className="material-symbols-outlined">{getIcon(n.type)}</span>
+                    </div>
+                    <div className="flex-1 space-y-1">
+                      <div className="flex justify-between items-start">
+                        <h3
+                          className={`text-sm font-bold ${
+                            n.isRead ? 'text-gray-700 dark:text-gray-300' : 'text-[#191011] dark:text-white'
+                          }`}
+                        >
+                          {n.title}
+                        </h3>
+                        <span className="text-[10px] text-gray-400 font-medium">{n.time}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{n.body}</p>
+                    </div>
+                    {!n.isRead && <div className="size-2 bg-primary rounded-full mt-1.5" />}
                   </div>
-                  {!n.isRead && <div className="size-2 bg-primary rounded-full mt-1.5" />}
-                </div>
-              ))
+                );
+              })
             )}
           </>
         )}
