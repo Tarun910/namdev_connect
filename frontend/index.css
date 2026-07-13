@@ -1,1 +1,72 @@
-/* App-specific styles (Tailwind via CDN in index.html) */
+@import 'tailwindcss';
+@config './tailwind.config.js';
+
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  font-family: 'Manrope', sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+.font-poppins {
+  font-family: 'Poppins', sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.glass-nav {
+  backdrop-filter: blur(12px);
+  background-color: rgba(250, 250, 250, 0.85);
+}
+
+.dark .glass-nav {
+  background-color: rgba(23, 25, 28, 0.85);
+}
+
+/* Dark mode: keep inputs/selects/textarea readable (incl. browser autofill) */
+.dark input:not([type='checkbox']):not([type='radio']):not([type='file']):not([type='hidden']),
+.dark textarea,
+.dark select {
+  background-color: #1f2937;
+  color: #f3f4f6;
+  border-color: #4b5563;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #9ca3af;
+}
+
+.dark select option {
+  background-color: #1f2937;
+  color: #f3f4f6;
+}
+
+.dark input:-webkit-autofill,
+.dark input:-webkit-autofill:hover,
+.dark input:-webkit-autofill:focus,
+.dark input:-webkit-autofill:active,
+.dark textarea:-webkit-autofill,
+.dark textarea:-webkit-autofill:hover,
+.dark textarea:-webkit-autofill:focus,
+.dark textarea:-webkit-autofill:active,
+.dark select:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #1f2937 inset !important;
+  box-shadow: 0 0 0 1000px #1f2937 inset !important;
+  -webkit-text-fill-color: #f3f4f6 !important;
+  caret-color: #f3f4f6;
+}

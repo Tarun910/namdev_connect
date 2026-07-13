@@ -1,9 +1,10 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { Show, SignInButton, SignUpButton, UserButton, useAuth } from '@clerk/react';
-import { useNavigate } from 'react-router-dom';
+import { Show, SignInButton, SignUpButton, useAuth } from '@clerk/react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { LanguageContext } from '../App';
+import ProfileAvatarButton from '../components/ProfileAvatarButton';
 import { useTranslation } from '../services/i18n';
-import { authorizedFetch } from '../services/api';
+import { authorizedFetch, authorizedFetchCached } from '../services/api';
 import type { AppNotification, Profile, User } from '../types';
 
 interface Props {
@@ -29,6 +30,7 @@ function profileCompletionPercent(u: User): number {
 
 const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { language } = useContext(LanguageContext);
   const t = useTranslation(language);
   const { isLoaded, isSignedIn, getToken } = useAuth();
@@ -54,12 +56,12 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
       const token = await getToken();
       if (!token) return;
       const [meUser, profiles, notifs] = await Promise.all([
-        authorizedFetch<User>('/profile/me', token),
-        authorizedFetch<Profile[]>('/profiles', token),
+        authorizedFetchCached<User>('/profile/me', token),
+        authorizedFetch<Profile[]>('/profiles/featured?limit=4', token),
         authorizedFetch<AppNotification[]>('/notifications', token),
       ]);
       setMe(meUser);
-      setFeatured((profiles ?? []).slice(0, 4));
+      setFeatured(profiles ?? []);
       setNotifications(notifs ?? []);
     } catch {
       // Keep marketing UI usable even if API fails.
@@ -73,6 +75,21 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
   useEffect(() => {
     void loadFeatured();
   }, [loadFeatured]);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    if (location.pathname !== '/dashboard' && location.pathname !== '/') return;
+    void (async () => {
+      const token = await getToken();
+      if (!token) return;
+      try {
+        const meUser = await authorizedFetchCached<User>('/profile/me', token);
+        setMe(meUser);
+      } catch {
+        /* keep existing header state */
+      }
+    })();
+  }, [location.pathname, getToken, isLoaded, isSignedIn]);
 
   const handleCreateProfile = useCallback(() => {
     // Avoid the “infinite load” feeling by routing correctly based on auth state.
@@ -137,7 +154,7 @@ const Home: React.FC<Props> = ({ onToggleTheme, isDark }) => {
                   </span>
                 )}
               </button>
-              <UserButton afterSignOutUrl="/#" />
+              <ProfileAvatarButton user={me} onClick={() => navigate('/complete-profile')} />
             </Show>
           </div>
         </div>

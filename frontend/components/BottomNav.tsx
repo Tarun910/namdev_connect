@@ -35,22 +35,17 @@ const BottomNav: React.FC = () => {
 
   useEffect(() => {
     if (!isSignedIn) return;
-    const id = window.setInterval(() => void refreshChatUnread(), 12000);
+    const id = window.setInterval(() => void refreshChatUnread(), 60_000);
     return () => window.clearInterval(id);
   }, [isSignedIn, refreshChatUnread]);
 
   useEffect(() => {
     if (!isSignedIn) return;
-    const onFocus = () => void refreshChatUnread();
     const onVis = () => {
       if (document.visibilityState === 'visible') void refreshChatUnread();
     };
-    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVis);
-    return () => {
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVis);
-    };
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, [isSignedIn, refreshChatUnread]);
 
   const navItems = [

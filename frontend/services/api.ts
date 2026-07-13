@@ -1,5 +1,8 @@
 import type { AppNotification, Message, Profile, User } from '../types';
 import { clerkSignOut, getClerkSessionToken } from './clerk-session';
+import { fetchWithCache, invalidateApiCache } from './apiCache';
+
+export { invalidateApiCache };
 
 async function getAccessToken(): Promise<string | null> {
   return getClerkSessionToken();
@@ -64,7 +67,20 @@ async function request<T>(path: string, init?: RequestInit, bearerToken?: string
 
 /** Use with `useAuth().getToken()` right after `isLoaded` to avoid a race with ClerkTokenBridge. */
 export async function authorizedFetch<T>(path: string, bearerToken: string, init?: RequestInit): Promise<T> {
+  if (init?.method && init.method !== 'GET') {
+    invalidateApiCache('/profile/me');
+  }
   return request<T>(path, init, bearerToken);
+}
+
+/** Cached GET for hot paths like `/profile/me` (45s TTL). */
+export async function authorizedFetchCached<T>(
+  path: string,
+  bearerToken: string,
+  ttlMs = 45_000
+): Promise<T> {
+  const key = `${path}:${bearerToken.slice(-12)}`;
+  return fetchWithCache(key, () => authorizedFetch<T>(path, bearerToken), ttlMs);
 }
 
 export const api = {
@@ -95,6 +111,8 @@ export const api = {
       }
     },
     getAll: async (): Promise<Profile[]> => request('/profiles'),
+    getFeatured: async (limit = 8): Promise<Profile[]> =>
+      request(`/profiles/featured?limit=${limit}`),
   },
   chat: {
     getMessages: async (partnerId: string): Promise<Message[]> =>

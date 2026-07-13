@@ -12,6 +12,13 @@ const MAX_PROFILE_PHOTOS = 7;
 const DEFAULT_COVER =
   'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=400';
 
+const profileFieldClass =
+  'w-full rounded-2xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 py-4 px-4 text-[#191011] dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:ring-2 focus:ring-primary/20 focus:border-primary/40 text-base shadow-sm outline-none font-bold';
+
+const profileTextareaClass = `${profileFieldClass} font-medium resize-none`;
+
+const profileSelectClass = `${profileFieldClass} appearance-none`;
+
 function readFileAsDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -643,7 +650,7 @@ const CompleteProfile: React.FC = () => {
           </label>
           <input
             type="text"
-            className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+            className={profileFieldClass}
             placeholder="Your full name"
             value={formData.name || ''}
             onChange={(e) => handleFieldChange('name', e.target.value)}
@@ -659,7 +666,7 @@ const CompleteProfile: React.FC = () => {
               type="number"
               min={18}
               max={120}
-              className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+              className={profileFieldClass}
               placeholder="25"
               value={formData.age ?? ''}
               onChange={(e) =>
@@ -672,7 +679,7 @@ const CompleteProfile: React.FC = () => {
               Gender
             </label>
             <select
-              className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+              className={profileSelectClass}
               value={formData.gender || ''}
               onChange={(e) => handleFieldChange('gender', e.target.value || undefined)}
             >
@@ -690,7 +697,7 @@ const CompleteProfile: React.FC = () => {
           </label>
           <input
             type="text"
-            className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+            className={profileFieldClass}
             placeholder="City, State"
             value={formData.location || ''}
             onChange={(e) => handleFieldChange('location', e.target.value)}
@@ -704,7 +711,7 @@ const CompleteProfile: React.FC = () => {
             </label>
             <input
               type="tel"
-              className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+              className={profileFieldClass}
               placeholder="+91 …"
               value={formData.phone || ''}
               onChange={(e) => handleFieldChange('phone', e.target.value)}
@@ -716,7 +723,7 @@ const CompleteProfile: React.FC = () => {
             </label>
             <input
               type="email"
-              className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+              className={profileFieldClass}
               placeholder="you@example.com"
               value={formData.email || ''}
               onChange={(e) => handleFieldChange('email', e.target.value)}
@@ -731,7 +738,7 @@ const CompleteProfile: React.FC = () => {
           </label>
           <textarea
             rows={3}
-            className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-sm shadow-sm outline-none font-medium resize-none"
+            className={profileTextareaClass}
             placeholder="Tell us about yourself, your hobbies, and what you're looking for..."
             value={formData.bio || ''}
             onChange={(e) => handleFieldChange('bio', e.target.value)}
@@ -796,7 +803,7 @@ const CompleteProfile: React.FC = () => {
               </label>
               <div className="relative">
                 <select
-                  className="flex w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none appearance-none font-bold"
+                  className={`${profileSelectClass} flex w-full`}
                   value={(formData as Record<string, string>)[field.id] || ''}
                   onChange={(e) => handleFieldChange(field.id, e.target.value)}
                 >
@@ -827,7 +834,7 @@ const CompleteProfile: React.FC = () => {
             </label>
             <input
               type="text"
-              className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+              className={profileFieldClass}
               value={formData.gotra || ''}
               onChange={(e) => handleFieldChange('gotra', e.target.value)}
             />
@@ -839,7 +846,7 @@ const CompleteProfile: React.FC = () => {
               </label>
               <input
                 type="text"
-                className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+                className={profileFieldClass}
                 value={formData.fatherName || ''}
                 onChange={(e) => handleFieldChange('fatherName', e.target.value)}
               />
@@ -850,7 +857,7 @@ const CompleteProfile: React.FC = () => {
               </label>
               <input
                 type="text"
-                className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+                className={profileFieldClass}
                 value={formData.motherName || ''}
                 onChange={(e) => handleFieldChange('motherName', e.target.value)}
               />
@@ -862,7 +869,7 @@ const CompleteProfile: React.FC = () => {
             </label>
             <input
               type="text"
-              className="w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none font-bold"
+              className={profileFieldClass}
               placeholder="e.g. 15 Jan 1998"
               value={formData.birthDate || ''}
               onChange={(e) => handleFieldChange('birthDate', e.target.value)}
@@ -901,7 +908,7 @@ const CompleteProfile: React.FC = () => {
               </label>
               <div className="relative">
                 <select
-                  className="flex w-full rounded-2xl border-none bg-white dark:bg-white/5 py-4 px-4 text-[#191011] dark:text-white focus:ring-2 focus:ring-primary/10 text-base shadow-sm outline-none appearance-none font-bold"
+                  className={`${profileSelectClass} flex w-full`}
                   value={(formData as Record<string, string>)[field.id] || ''}
                   onChange={(e) => handleFieldChange(field.id, e.target.value)}
                 >

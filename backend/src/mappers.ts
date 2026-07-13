@@ -65,6 +65,19 @@ export function rowToProfile(row: ProfileRow): Profile {
   return rest;
 }
 
+/** Columns for list/card views — omits gallery_urls and heavy fields from SQL. */
+export const LIST_PROFILE_SELECT =
+  'id, name, age, gender, location, profession, education, image_url, is_verified, is_premium, height, income, gotra, bio';
+
+/** Lighter profile for discover/home/chat lists (no gallery array). */
+export function rowToProfileCard(row: ProfileRow): Profile {
+  const { galleryUrls: _omit, ...card } = rowToProfile(row);
+  return {
+    ...card,
+    bio: card.bio && card.bio.length > 160 ? `${card.bio.slice(0, 160)}…` : card.bio,
+  };
+}
+
 type MessageRow = {
   id: string;
   sender_id: string;

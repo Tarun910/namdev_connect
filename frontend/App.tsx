@@ -1,24 +1,26 @@
 
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, Suspense, lazy } from 'react';
 import { useAuth } from '@clerk/react';
 import { HashRouter as Router, Routes, Route, useNavigate, useLocation } from 'react-router-dom';
-import Home from './pages/Home';
-import Discover from './pages/Discover';
-import SavedInterests from './pages/SavedInterests';
-import ChatsList from './pages/ChatsList';
-import Dashboard from './pages/Dashboard';
-import ProfileDetail from './pages/ProfileDetail';
-import Chat from './pages/Chat';
-import Login from './pages/Login';
-import Membership from './pages/Membership';
-import CompleteProfile from './pages/CompleteProfile';
-import Notifications from './pages/Notifications';
-import KundliMilan from './pages/KundliMilan';
-import AICompatibility from './pages/AICompatibility';
 import BottomNav from './components/BottomNav';
+import PageLoader from './components/PageLoader';
 import ClerkRouterProvider from './components/ClerkRouterProvider';
 import ClerkTokenBridge from './components/ClerkTokenBridge';
 import { Language } from './types';
+
+const Home = lazy(() => import('./pages/Home'));
+const Discover = lazy(() => import('./pages/Discover'));
+const SavedInterests = lazy(() => import('./pages/SavedInterests'));
+const ChatsList = lazy(() => import('./pages/ChatsList'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const ProfileDetail = lazy(() => import('./pages/ProfileDetail'));
+const Chat = lazy(() => import('./pages/Chat'));
+const Login = lazy(() => import('./pages/Login'));
+const Membership = lazy(() => import('./pages/Membership'));
+const CompleteProfile = lazy(() => import('./pages/CompleteProfile'));
+const Notifications = lazy(() => import('./pages/Notifications'));
+const KundliMilan = lazy(() => import('./pages/KundliMilan'));
+const AICompatibility = lazy(() => import('./pages/AICompatibility'));
 
 interface LanguageContextType {
   language: Language;
@@ -42,13 +44,16 @@ const Splash: React.FC = () => (
   </div>
 );
 
+const SPLASH_KEY = 'nc_splash_seen';
+
 const AppContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { isSignedIn, isLoaded } = useAuth();
-  const [isSplashActive, setIsSplashActive] = useState(
-    () => !window.location.hash.includes('/login')
-  );
+  const [isSplashActive, setIsSplashActive] = useState(() => {
+    if (window.location.hash.includes('/login')) return false;
+    return !sessionStorage.getItem(SPLASH_KEY);
+  });
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('theme');
     if (saved) return saved === 'dark';
@@ -56,9 +61,13 @@ const AppContent: React.FC = () => {
   });
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsSplashActive(false), 2000);
+    if (!isSplashActive) return;
+    const timer = setTimeout(() => {
+      setIsSplashActive(false);
+      sessionStorage.setItem(SPLASH_KEY, '1');
+    }, 600);
     return () => clearTimeout(timer);
-  }, []);
+  }, [isSplashActive]);
 
   useEffect(() => {
     if (isDark) {
@@ -90,24 +99,24 @@ const AppContent: React.FC = () => {
   return (
     <div className="max-w-md mx-auto min-h-screen bg-background-light dark:bg-background-dark relative shadow-2xl flex flex-col">
       <div className="flex-1">
-        <Routes>
-          <Route path="/" element={<Home onToggleTheme={toggleTheme} isDark={isDark} />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/discover" element={<Discover />} />
-          <Route path="/saved-interests" element={<SavedInterests />} />
-          {/* Home tab should show the marketing-style homepage UI */}
-          <Route path="/dashboard" element={<Home onToggleTheme={toggleTheme} isDark={isDark} />} />
-          {/* Keep the signed-in dashboard available */}
-          <Route path="/account" element={<Dashboard onToggleTheme={toggleTheme} isDark={isDark} />} />
-          <Route path="/chats" element={<ChatsList />} />
-          <Route path="/profile/:id" element={<ProfileDetail />} />
-          <Route path="/chat/:id" element={<Chat />} />
-          <Route path="/membership" element={<Membership />} />
-          <Route path="/complete-profile" element={<CompleteProfile />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/kundli/:id" element={<KundliMilan />} />
-          <Route path="/compatibility/:id" element={<AICompatibility />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/" element={<Home onToggleTheme={toggleTheme} isDark={isDark} />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/discover" element={<Discover />} />
+            <Route path="/saved-interests" element={<SavedInterests />} />
+            <Route path="/dashboard" element={<Home onToggleTheme={toggleTheme} isDark={isDark} />} />
+            <Route path="/account" element={<Dashboard onToggleTheme={toggleTheme} isDark={isDark} />} />
+            <Route path="/chats" element={<ChatsList />} />
+            <Route path="/profile/:id" element={<ProfileDetail />} />
+            <Route path="/chat/:id" element={<Chat />} />
+            <Route path="/membership" element={<Membership />} />
+            <Route path="/complete-profile" element={<CompleteProfile />} />
+            <Route path="/notifications" element={<Notifications />} />
+            <Route path="/kundli/:id" element={<KundliMilan />} />
+            <Route path="/compatibility/:id" element={<AICompatibility />} />
+          </Routes>
+        </Suspense>
       </div>
       {!hideBottomNav && <BottomNav />}
     </div>

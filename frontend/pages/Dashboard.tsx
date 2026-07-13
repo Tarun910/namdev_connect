@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
 import { useAuth } from '@clerk/react';
 import { useNavigate } from 'react-router-dom';
-import { authorizedFetch } from '../services/api';
+import { authorizedFetch, authorizedFetchCached } from '../services/api';
+import { profilePhotoUrl } from '../services/profilePhoto';
 import { User, AppNotification, Profile } from '../types';
 import { LanguageContext } from '../App';
 import { useTranslation } from '../services/i18n';
@@ -57,9 +58,9 @@ const Dashboard: React.FC<Props> = ({ onToggleTheme, isDark }) => {
         return;
       }
       const [userData, notifs, profiles] = await Promise.all([
-        authorizedFetch<User>('/profile/me', token),
+        authorizedFetchCached<User>('/profile/me', token),
         authorizedFetch<AppNotification[]>('/notifications', token),
-        authorizedFetch<Profile[]>('/profiles', token),
+        authorizedFetch<Profile[]>('/profiles/featured?limit=12', token),
       ]);
       setUser(userData);
       setNotifications(notifs);
@@ -167,7 +168,7 @@ const Dashboard: React.FC<Props> = ({ onToggleTheme, isDark }) => {
             <div
               className="bg-center bg-no-repeat aspect-square bg-cover w-full h-full"
               style={{
-                backgroundImage: `url(${user.imageUrl || 'https://picsum.photos/100/100?seed=myprofile'})`,
+                backgroundImage: `url(${profilePhotoUrl(user)})`,
               }}
             />
             {/* Photo verification badge (delayed — enable with Complete Profile verification UI)

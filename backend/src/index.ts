@@ -9,6 +9,8 @@ import {
   rowToMessage,
   rowToNotification,
   rowToProfile,
+  rowToProfileCard,
+  LIST_PROFILE_SELECT,
   rowToUser,
 } from './mappers.js';
 // Photo verification (delayed): uncomment imports + routes below when enabling AWS Rekognition.
@@ -330,7 +332,7 @@ app.get('/api/saved-interests', async (req, res) => {
     res.json([]);
     return;
   }
-  const { data: profiles, error: pErr } = await sb.from('profiles').select('*').in('id', ids);
+  const { data: profiles, error: pErr } = await sb.from('profiles').select(LIST_PROFILE_SELECT).in('id', ids);
   if (pErr) {
     res.status(400).json({ error: pErr.message });
     return;
@@ -339,7 +341,7 @@ app.get('/api/saved-interests', async (req, res) => {
     (profiles ?? []).map((p: { id: string }) => [p.id, p] as const)
   );
   const ordered = ids.map((id) => byId.get(id)).filter(Boolean) as Parameters<typeof rowToProfile>[0][];
-  res.json(ordered.map((r) => rowToProfile(r)));
+  res.json(ordered.map((r) => rowToProfileCard(r)));
 });
 
 app.post('/api/saved-interests', async (req, res) => {
@@ -496,7 +498,7 @@ app.get('/api/interest-requests/incoming', async (req, res) => {
     res.json([]);
     return;
   }
-  const { data: profs, error: pErr } = await sb.from('profiles').select('*').in('id', ids);
+  const { data: profs, error: pErr } = await sb.from('profiles').select(LIST_PROFILE_SELECT).in('id', ids);
   if (pErr) {
     res.status(400).json({ error: pErr.message });
     return;
@@ -507,7 +509,7 @@ app.get('/api/interest-requests/incoming', async (req, res) => {
     return {
       id: r.id,
       createdAt: r.created_at,
-      fromProfile: pr ? rowToProfile(pr) : null,
+      fromProfile: pr ? rowToProfileCard(pr) : null,
     };
   });
   res.json(list.filter((x) => x.fromProfile));
@@ -621,38 +623,42 @@ app.post('/api/interest-requests/:id/reject', async (req, res) => {
   res.json({ ok: true, status: 'rejected' });
 });
 
-/* --- Verified-only featured list (delayed; use from Home when verification ships) ---
+/* Featured profiles for home — lightweight list (no full gallery payloads). */
 app.get('/api/profiles/featured', async (req, res) => {
   const user = await requireApiUser(req, res);
   if (!user) return;
+  const limit = Math.min(24, Math.max(1, Number(req.query.limit) || 8));
   const sb = getSupabaseAdmin();
   const { data, error } = await sb
     .from('profiles')
-    .select('*')
-    .eq('is_verified', true)
+    .select(LIST_PROFILE_SELECT)
     .neq('id', user.profileId)
     .order('updated_at', { ascending: false })
-    .limit(24);
+    .limit(limit);
   if (error) {
     res.status(400).json({ error: error.message });
     return;
   }
-  const rows = (data ?? []) as Parameters<typeof rowToProfile>[0][];
-  res.json(rows.map((r) => rowToProfile(r)));
+  const rows = (data ?? []) as Parameters<typeof rowToProfileCard>[0][];
+  res.json(rows.map((r) => rowToProfileCard(r)));
 });
---- */
 
 app.get('/api/profiles', async (req, res) => {
   const user = await requireApiUser(req, res);
   if (!user) return;
   const sb = getSupabaseAdmin();
-  const { data, error } = await sb.from('profiles').select('*').neq('id', user.profileId);
+  const { data, error } = await sb
+    .from('profiles')
+    .select(LIST_PROFILE_SELECT)
+    .neq('id', user.profileId)
+    .order('updated_at', { ascending: false })
+    .limit(80);
   if (error) {
     res.status(400).json({ error: error.message });
     return;
   }
-  const rows = (data ?? []) as Parameters<typeof rowToProfile>[0][];
-  res.json(rows.map((r) => rowToProfile(r)));
+  const rows = (data ?? []) as Parameters<typeof rowToProfileCard>[0][];
+  res.json(rows.map((r) => rowToProfileCard(r)));
 });
 
 app.get('/api/chat/conversations', async (req, res) => {
@@ -683,7 +689,7 @@ app.get('/api/chat/conversations', async (req, res) => {
     res.json([]);
     return;
   }
-  const { data: profiles, error: pErr } = await sb.from('profiles').select('*').in('id', partnerOrder);
+  const { data: profiles, error: pErr } = await sb.from('profiles').select(LIST_PROFILE_SELECT).in('id', partnerOrder);
   if (pErr) {
     res.status(400).json({ error: pErr.message });
     return;
@@ -716,7 +722,7 @@ app.get('/api/chat/conversations', async (req, res) => {
       const p = byIdNorm.get(k);
       const l = latest.get(k);
       if (!p || !l) return null;
-      const partner = rowToProfile(p);
+      const partner = rowToProfileCard(p);
       if (partner.id.trim().toLowerCase() === meNorm) return null;
       return {
         partner,
