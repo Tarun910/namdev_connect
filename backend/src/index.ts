@@ -114,8 +114,19 @@ app.get('/', (_req, res) => {
 </html>`);
 });
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
+app.get('/api/health', async (_req, res) => {
+  try {
+    const sb = getSupabaseAdmin();
+    const { error } = await sb.from('profiles').select('id').limit(1);
+    if (error) {
+      res.status(500).json({ ok: false, db: error.message, code: error.code });
+      return;
+    }
+    res.json({ ok: true, db: 'ok' });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Supabase check failed';
+    res.status(500).json({ ok: false, db: msg });
+  }
 });
 
 app.use(clerkMiddleware());

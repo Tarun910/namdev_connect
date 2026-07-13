@@ -79,8 +79,7 @@ Free tier sleeps after **15 min** idle; first API call after that can take ~1 mi
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key |
 | `VITE_SUPABASE_URL` | `https://wgpqpfypcaicdjbkhdey.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | Supabase publishable key |
-
-Leave **`VITE_API_BASE_URL` unset** — `vercel.json` proxies `/api/*` → Render.
+| `VITE_API_BASE_URL` | `https://namdev-connect-api.onrender.com` (**required** — no `/api` suffix) |
 
 Redeploy Vercel after env changes.
 

@@ -6,8 +6,6 @@ async function getAccessToken(): Promise<string | null> {
 }
 
 function apiBaseUrl(): string {
-  // Production: same-origin /api (Vercel rewrites → Railway). Local dev: Vite proxy → localhost:5000.
-  if (import.meta.env.PROD) return '';
   const raw = import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/$/, '');
   return raw ?? '';
 }
@@ -15,9 +13,22 @@ function apiBaseUrl(): string {
 function networkErrorMessage(cause: unknown, url: string): string {
   const base = apiBaseUrl() || '(same origin /api)';
   if (cause instanceof TypeError && /failed to fetch|networkerror|load failed/i.test(cause.message)) {
-    return `Cannot reach the API (${base}). If you use Vercel, redeploy the Railway backend and confirm /api/health works. Details: ${cause.message}`;
+    return `Cannot reach the API (${base}). On Vercel set VITE_API_BASE_URL to your Render URL (no /api suffix). Details: ${cause.message}`;
   }
   return cause instanceof Error ? cause.message : 'Request failed';
+}
+
+function parseApiErrorBody(text: string, statusText: string): string {
+  if (!text) return statusText || 'Request failed';
+  if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
+    return 'API returned HTML instead of JSON. On Vercel set VITE_API_BASE_URL=https://namdev-connect-api.onrender.com and redeploy.';
+  }
+  try {
+    const data = JSON.parse(text) as { error?: string };
+    return typeof data.error === 'string' ? data.error : statusText || 'Request failed';
+  } catch {
+    return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  }
 }
 
 async function request<T>(path: string, init?: RequestInit, bearerToken?: string | null): Promise<T> {
@@ -37,18 +48,18 @@ async function request<T>(path: string, init?: RequestInit, bearerToken?: string
     throw new Error(networkErrorMessage(e, url));
   }
   const text = await res.text();
-  let data: unknown = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { error: text || res.statusText };
-  }
-
   if (!res.ok) {
-    const msg = (data as { error?: string })?.error ?? res.statusText;
-    throw new Error(typeof msg === 'string' ? msg : 'Request failed');
+    throw new Error(parseApiErrorBody(text, res.statusText));
   }
-  return data as T;
+  if (!text) return null as T;
+  if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
+    throw new Error(parseApiErrorBody(text, res.statusText));
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(parseApiErrorBody(text, res.statusText));
+  }
 }
 
 /** Use with `useAuth().getToken()` right after `isLoaded` to avoid a race with ClerkTokenBridge. */
