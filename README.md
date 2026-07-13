@@ -42,42 +42,54 @@ npm run dev
 
 If `VITE_CLERK_PUBLISHABLE_KEY` is missing, the app shows a short setup screen instead of crashing.
 
-## Production (Vercel + Railway)
+## Production (Vercel + Render)
 
-**Frontend (Vercel)** — set only `VITE_*` vars:
+### Step 1 — Supabase (once)
+
+Run `supabase/manual/full_schema_setup.sql` in Supabase SQL Editor (project `wgpqpfypcaicdjbkhdey`).
+
+### Step 2 — Render backend (free)
+
+1. Go to [dashboard.render.com](https://dashboard.render.com) → sign up with GitHub.
+2. **New +** → **Blueprint** → connect repo **`Tarun910/namdev_connect`**.
+3. Render reads `render.yaml` — confirm service **namdev-connect-api**, plan **Free**.
+4. When prompted, paste these **Environment Variables**:
+
+| Key | Value |
+|-----|--------|
+| `CLERK_PUBLISHABLE_KEY` | `pk_test_...` (same as Vercel) |
+| `CLERK_SECRET_KEY` | `sk_test_...` |
+| `SUPABASE_URL` | `https://wgpqpfypcaicdjbkhdey.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | `sb_secret_...` |
+
+5. Click **Apply** / deploy. Wait until status is **Live**.
+6. Open `https://namdev-connect-api.onrender.com/api/health` → must show `{"ok":true}`.
+   - If Render gave a different URL, update `vercel.json` rewrite `destination` to match.
+
+**Manual deploy (no Blueprint):** New → Web Service → repo root → Runtime **Node** → Build: `npm install && npm run build -w backend` → Start: `npm run start -w backend` → Health: `/api/health` → Free.
+
+Free tier sleeps after **15 min** idle; first API call after that can take ~1 min.
+
+### Step 3 — Vercel frontend
+
+**Environment Variables** (Settings → Environment Variables):
 
 | Variable | Value |
 |----------|--------|
 | `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key |
-| `VITE_SUPABASE_URL` | `https://YOUR_REF.supabase.co` |
-| `VITE_SUPABASE_ANON_KEY` | Supabase publishable/anon key |
+| `VITE_SUPABASE_URL` | `https://wgpqpfypcaicdjbkhdey.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Supabase publishable key |
 
-Leave `VITE_API_BASE_URL` **unset** on Vercel — `vercel.json` proxies `/api/*` to Railway.
+Leave **`VITE_API_BASE_URL` unset** — `vercel.json` proxies `/api/*` → Render.
 
-**Backend (Railway)** — required env:
+Redeploy Vercel after env changes.
 
-| Variable | Value |
-|----------|--------|
-| `CLERK_PUBLISHABLE_KEY` | Same as frontend |
-| `CLERK_SECRET_KEY` | Clerk secret |
-| `SUPABASE_URL` | `https://wgpqpfypcaicdjbkhdey.supabase.co` (your project) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase secret key |
-| `PORT` | `5000` (Railway sets this automatically) |
+### Step 4 — Clerk
 
-Deploy backend from repo root (`railway.toml` runs `npm run build -w backend`). After deploy, open `https://YOUR-RAILWAY-URL/api/health` — must return `{"ok":true}`. Update the Railway URL in root `vercel.json` under `rewrites` if it changed.
+Clerk Dashboard → **Configure → Domains** → add your Vercel URL (`https://*.vercel.app` or exact production URL).
 
-Run `supabase/manual/full_schema_setup.sql` in Supabase SQL Editor before first sign-in.
+### Verify
 
-### Backend hosting (Railway trial expired?)
-
-**Railway** after trial → **Free plan** ($1 credit/month). Deployments pause when trial ends — open Railway → your service → **Redeploy** (no card needed if you stay on Free). If it asks to upgrade, you can use **Render** instead (see `render.yaml`).
-
-**Render (free alternative):**
-
-1. [render.com](https://render.com) → **New Web Service** → connect GitHub repo
-2. Render detects `render.yaml` — choose **Free** instance
-3. Add env vars: `CLERK_*`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
-4. Deploy → copy URL (e.g. `https://namdev-connect-api.onrender.com`)
-5. Update root `vercel.json` rewrite destination to that URL + redeploy Vercel
-
-Free Render sleeps after 15 min idle (first request ~1 min slow). Railway Free has similar limits ($1/month cap).
+1. Sign in on production Vercel site.
+2. Tap **Profile** → should load (not `cloud_off` / Failed to fetch).
+3. If slow first time after idle, wait ~1 min and tap **Retry** (Render waking up).

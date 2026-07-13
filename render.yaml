@@ -1,16 +1,17 @@
-# Render free tier: https://dashboard.render.com → New → Web Service → connect this repo.
-# Root directory: (repo root). Render reads this file automatically.
+# Deploy: https://dashboard.render.com → New + → Blueprint → connect Tarun910/namdev_connect
+# Or: New → Web Service → repo root, Free instance, commands below.
 services:
   - type: web
     name: namdev-connect-api
     runtime: node
     plan: free
+    region: singapore
     buildCommand: npm install && npm run build -w backend
     startCommand: npm run start -w backend
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
-        value: 22
+        value: "22"
       - key: CLERK_PUBLISHABLE_KEY
         sync: false
       - key: CLERK_SECRET_KEY
